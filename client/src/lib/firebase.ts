@@ -4,12 +4,12 @@ import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
 import { getFunctions, connectFunctionsEmulator } from 'firebase/functions';
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  apiKey: "AIzaSyAolxpBPKrxtcOXGCuFMlxRmh3zX82z8RA",
+  authDomain: "project-thanga-malar.firebaseapp.com",
+  projectId: "project-thanga-malar",
+  storageBucket: "project-thanga-malar.firebasestorage.app",
+  messagingSenderId: "494954665654",
+  appId: "1:494954665654:web:6361f991eea99dccbab817",
 };
 
 // Initialize Firebase
