@@ -1,7 +1,42 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Landing() {
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const { signIn, signUp } = useAuth();
+  const { toast } = useToast();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+
+    try {
+      if (isSignUp) {
+        await signUp(email, password);
+        toast({ title: "Success", description: "Account created successfully!" });
+      } else {
+        await signIn(email, password);
+        toast({ title: "Success", description: "Signed in successfully!" });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-jewelry-cream to-white">
       <div className="container mx-auto px-4 py-16">
@@ -65,18 +100,51 @@ export default function Landing() {
           <Card className="max-w-md mx-auto border-jewelry-gold/20">
             <CardContent className="p-8">
               <h3 className="font-semibold text-jewelry-navy text-xl mb-4">
-                Ready to Get Started?
+                {isSignUp ? "Create Account" : "Sign In"}
               </h3>
-              <p className="text-gray-600 mb-6">
-                Access your jewelry management dashboard and start managing your business more efficiently.
-              </p>
-              <Button 
-                onClick={() => window.location.href = '/api/login'}
-                className="bg-jewelry-gold hover:bg-jewelry-bronze text-white px-8 py-3 text-lg"
-              >
-                <i className="fas fa-sign-in-alt mr-2"></i>
-                Sign In
-              </Button>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="password">Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <Button 
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full bg-jewelry-gold hover:bg-jewelry-bronze text-white"
+                >
+                  {isLoading ? (
+                    <i className="fas fa-spinner fa-spin mr-2"></i>
+                  ) : (
+                    <i className="fas fa-sign-in-alt mr-2"></i>
+                  )}
+                  {isSignUp ? "Create Account" : "Sign In"}
+                </Button>
+              </form>
+              <div className="mt-4">
+                <Button
+                  variant="ghost"
+                  onClick={() => setIsSignUp(!isSignUp)}
+                  className="text-jewelry-gold hover:text-jewelry-bronze"
+                >
+                  {isSignUp ? "Already have an account? Sign in" : "Need an account? Sign up"}
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>

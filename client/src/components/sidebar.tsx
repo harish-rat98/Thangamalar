@@ -1,9 +1,11 @@
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import TamilLogo from "./tamil-logo";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function Sidebar() {
   const [location] = useLocation();
+  const { logout } = useAuth();
 
   const navigationItems = [
     {
@@ -50,6 +52,14 @@ export default function Sidebar() {
     }
   ];
 
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+  };
+
   return (
     <aside className="w-64 bg-white shadow-lg border-r border-gray-200">
       <div className="p-6 border-b border-gray-200">
@@ -84,7 +94,7 @@ export default function Sidebar() {
           <Button
             variant="ghost"
             className="w-full justify-start px-4 py-3 text-jewelry-red hover:bg-red-50 rounded-lg transition-colors"
-            onClick={() => window.location.href = '/api/logout'}
+            onClick={handleLogout}
           >
             <i className="fas fa-sign-out-alt w-5 mr-3"></i>
             Logout
