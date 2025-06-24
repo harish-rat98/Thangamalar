@@ -5,6 +5,12 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import QuickSaleModal from "@/components/quick-sale-modal";
 import { useState } from "react";
+import { 
+  getDashboardMetrics, 
+  getSales, 
+  getLowStockItems, 
+  getOverdueCredits 
+} from "@/lib/firestore";
 
 interface DashboardMetrics {
   todaySales: string;
@@ -57,19 +63,23 @@ export default function Dashboard() {
   const [showQuickSale, setShowQuickSale] = useState(false);
 
   const { data: metrics, isLoading: metricsLoading } = useQuery<DashboardMetrics>({
-    queryKey: ['/api/dashboard/metrics'],
+    queryKey: ['dashboard-metrics'],
+    queryFn: getDashboardMetrics,
   });
 
   const { data: recentSales, isLoading: salesLoading } = useQuery<Sale[]>({
-    queryKey: ['/api/dashboard/recent-sales'],
+    queryKey: ['recent-sales'],
+    queryFn: () => getSales(10),
   });
 
   const { data: lowStockItems, isLoading: lowStockLoading } = useQuery<LowStockItem[]>({
-    queryKey: ['/api/dashboard/low-stock'],
+    queryKey: ['low-stock'],
+    queryFn: getLowStockItems,
   });
 
   const { data: overdueCredits, isLoading: creditsLoading } = useQuery<OverdueCredit[]>({
-    queryKey: ['/api/dashboard/overdue-credits'],
+    queryKey: ['overdue-credits'],
+    queryFn: getOverdueCredits,
   });
 
   const formatCurrency = (amount: string | number) => {

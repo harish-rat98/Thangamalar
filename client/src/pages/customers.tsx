@@ -11,11 +11,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { getCustomers, createCustomer, updateCustomer } from "@/lib/firestore";
+import { queryClient } from "@/lib/queryClient";
+import ContactImportModal from "@/components/contact-import-modal";
 
 interface Customer {
-  id: number;
+  id: string;
   name: string;
   phone: string;
   email?: string;
@@ -47,7 +49,8 @@ export default function Customers() {
   const { toast } = useToast();
 
   const { data: customers, isLoading } = useQuery<Customer[]>({
-    queryKey: ['/api/customers'],
+    queryKey: ['customers'],
+    queryFn: getCustomers,
   });
 
   const form = useForm<CustomerForm>({
@@ -63,11 +66,9 @@ export default function Customers() {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (data: CustomerForm) => {
-      await apiRequest('POST', '/api/customers', data);
-    },
+    mutationFn: createCustomer,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/customers'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
       toast({ title: "Success", description: "Customer added successfully" });
       setShowAddDialog(false);
       form.reset();
@@ -82,11 +83,10 @@ export default function Customers() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Partial<CustomerForm> }) => {
-      await apiRequest('PUT', `/api/customers/${id}`, data);
-    },
+    mutationFn: ({ id, data }: { id: string; data: Partial<CustomerForm> }) => 
+      updateCustomer(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/customers'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
       toast({ title: "Success", description: "Customer updated successfully" });
       setEditingCustomer(null);
       setShowAddDialog(false);
@@ -163,133 +163,142 @@ export default function Customers() {
             <h1 className="text-2xl font-bold text-jewelry-navy">Customer Management</h1>
             <p className="text-gray-600 mt-1">Manage customer information and relationships</p>
           </div>
-          <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-            <DialogTrigger asChild>
-              <Button className="bg-jewelry-gold text-white hover:bg-jewelry-bronze">
-                <i className="fas fa-plus mr-2"></i>Add New Customer
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>
-                  {editingCustomer ? 'Edit Customer' : 'Add New Customer'}
-                </DialogTitle>
-              </DialogHeader>
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+          <div className="flex items-center space-x-3">
+            <Button
+              variant="outline"
+              onClick={() => setShowImportDialog(true)}
+              className="border-jewelry-gold text-jewelry-gold hover:bg-jewelry-gold hover:text-white"
+            >
+              <i className="fas fa-upload mr-2"></i>Import Customers
+            </Button>
+            <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+              <DialogTrigger asChild>
+                <Button className="bg-jewelry-gold text-white hover:bg-jewelry-bronze">
+                  <i className="fas fa-plus mr-2"></i>Add New Customer
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>
+                    {editingCustomer ? 'Edit Customer' : 'Add New Customer'}
+                  </DialogTitle>
+                </DialogHeader>
+                <Form {...form}>
+                  <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <FormField
+                        control={form.control}
+                        name="name"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Customer Name</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Priya Sharma" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="phone"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Phone Number</FormLabel>
+                            <FormControl>
+                              <Input placeholder="+91 98765 43210" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <FormField
+                        control={form.control}
+                        name="email"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Email (Optional)</FormLabel>
+                            <FormControl>
+                              <Input placeholder="customer@example.com" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="city"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>City (Optional)</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Chennai" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
                     <FormField
                       control={form.control}
-                      name="name"
+                      name="address"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Customer Name</FormLabel>
+                          <FormLabel>Address (Optional)</FormLabel>
                           <FormControl>
-                            <Input placeholder="Priya Sharma" {...field} />
+                            <Textarea 
+                              placeholder="Customer's full address..." 
+                              {...field} 
+                            />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
+
                     <FormField
                       control={form.control}
-                      name="phone"
+                      name="creditLimit"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Phone Number</FormLabel>
+                          <FormLabel>Credit Limit</FormLabel>
                           <FormControl>
-                            <Input placeholder="+91 98765 43210" {...field} />
+                            <Input 
+                              type="number" 
+                              placeholder="50000" 
+                              {...field} 
+                            />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
-                  </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="email"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Email (Optional)</FormLabel>
-                          <FormControl>
-                            <Input placeholder="customer@example.com" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="city"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>City (Optional)</FormLabel>
-                          <FormControl>
-                            <Input placeholder="Chennai" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <FormField
-                    control={form.control}
-                    name="address"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Address (Optional)</FormLabel>
-                        <FormControl>
-                          <Textarea 
-                            placeholder="Customer's full address..." 
-                            {...field} 
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="creditLimit"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Credit Limit</FormLabel>
-                        <FormControl>
-                          <Input 
-                            type="number" 
-                            placeholder="50000" 
-                            {...field} 
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <div className="flex justify-end space-x-2 pt-4">
-                    <Button 
-                      type="button" 
-                      variant="outline" 
-                      onClick={handleClose}
-                    >
-                      Cancel
-                    </Button>
-                    <Button 
-                      type="submit" 
-                      className="bg-jewelry-gold hover:bg-jewelry-bronze"
-                      disabled={createMutation.isPending || updateMutation.isPending}
-                    >
-                      {editingCustomer ? 'Update Customer' : 'Add Customer'}
-                    </Button>
-                  </div>
-                </form>
-              </Form>
-            </DialogContent>
-          </Dialog>
+                    <div className="flex justify-end space-x-2 pt-4">
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        onClick={handleClose}
+                      >
+                        Cancel
+                      </Button>
+                      <Button 
+                        type="submit" 
+                        className="bg-jewelry-gold hover:bg-jewelry-bronze"
+                        disabled={createMutation.isPending || updateMutation.isPending}
+                      >
+                        {editingCustomer ? 'Update Customer' : 'Add Customer'}
+                      </Button>
+                    </div>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
       </header>
 
