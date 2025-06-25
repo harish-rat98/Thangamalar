@@ -6,9 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import QuickSaleModal from "@/components/quick-sale-modal";
+import { getSales } from "@/lib/firestore";
 
 interface Sale {
-  id: number;
+  id: string;
   totalAmount: string;
   paymentStatus: string;
   saleType: string;
@@ -34,7 +35,8 @@ export default function Sales() {
   const [showQuickSale, setShowQuickSale] = useState(false);
 
   const { data: sales, isLoading } = useQuery<Sale[]>({
-    queryKey: ['/api/sales'],
+    queryKey: ['sales'],
+    queryFn: () => getSales(),
   });
 
   const filteredSales = sales?.filter(sale =>

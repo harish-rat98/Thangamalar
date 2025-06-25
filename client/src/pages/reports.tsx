@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { getSalesReport, getProfitLossReport } from "@/lib/firestore";
 
 interface SalesReportData {
   date: string;
@@ -32,13 +33,13 @@ export default function Reports() {
   );
 
   const { data: salesReport, isLoading: salesLoading } = useQuery<SalesReportData[]>({
-    queryKey: ['/api/reports/sales', startDate, endDate],
-    queryParams: { startDate, endDate },
+    queryKey: ['sales-report', startDate, endDate],
+    queryFn: () => getSalesReport(new Date(startDate), new Date(endDate)),
   });
 
   const { data: profitLossReport, isLoading: profitLossLoading } = useQuery<ProfitLossData>({
-    queryKey: ['/api/reports/profit-loss', startDate, endDate],
-    queryParams: { startDate, endDate },
+    queryKey: ['profit-loss-report', startDate, endDate],
+    queryFn: () => getProfitLossReport(new Date(startDate), new Date(endDate)),
   });
 
   const formatCurrency = (amount: string | number) => {

@@ -12,11 +12,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { getCreditTransactions, getCustomers, createCreditTransaction } from "@/lib/firestore";
 
 interface CreditTransaction {
-  id: number;
+  id: string;
   type: 'credit' | 'payment';
   amount: string;
   balanceAfter: string;
@@ -24,7 +25,7 @@ interface CreditTransaction {
   notes?: string;
   createdAt: string;
   customer: {
-    id: number;
+    id: string;
     name: string;
     phone: string;
     totalCredit: string;
@@ -32,14 +33,14 @@ interface CreditTransaction {
 }
 
 interface Customer {
-  id: number;
+  id: string;
   name: string;
   phone: string;
   totalCredit: string;
 }
 
 const creditTransactionSchema = z.object({
-  customerId: z.number().min(1, "Customer is required"),
+  customerId: z.string().min(1, "Customer is required"),
   type: z.enum(['credit', 'payment']),
   amount: z.string().min(1, "Amount is required"),
   dueDate: z.string().optional(),
@@ -55,17 +56,19 @@ export default function CreditManagement() {
   const { toast } = useToast();
 
   const { data: creditTransactions, isLoading } = useQuery<CreditTransaction[]>({
-    queryKey: ['/api/credits'],
+    queryKey: ['credits'],
+    queryFn: getCreditTransactions,
   });
 
   const { data: customers } = useQuery<Customer[]>({
-    queryKey: ['/api/customers'],
+    queryKey: ['customers'],
+    queryFn: getCustomers,
   });
 
   const form = useForm<CreditTransactionForm>({
     resolver: zodResolver(creditTransactionSchema),
     defaultValues: {
-      customerId: 0,
+      customerId: "",
       type: "payment",
       amount: "",
       dueDate: "",
@@ -80,12 +83,12 @@ export default function CreditManagement() {
         balanceAfter: "0", // Will be calculated by backend
         dueDate: data.dueDate ? new Date(data.dueDate).toISOString() : undefined,
       };
-      await apiRequest('POST', '/api/credits', payload);
+      await createCreditTransaction(payload);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/credits'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/customers'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/metrics'] });
+      queryClient.invalidateQueries({ queryKey: ['credits'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-metrics'] });
       toast({ title: "Success", description: "Credit transaction recorded successfully" });
       setShowAddDialog(false);
       form.reset();
@@ -181,8 +184,8 @@ export default function CreditManagement() {
                       <FormItem>
                         <FormLabel>Customer</FormLabel>
                         <Select 
-                          onValueChange={(value) => field.onChange(parseInt(value))}
-                          value={field.value?.toString() || ""}
+                          onValueChange={field.onChange}
+                          value={field.value}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -191,7 +194,7 @@ export default function CreditManagement() {
                           </FormControl>
                           <SelectContent>
                             {customers?.map((customer) => (
-                              <SelectItem key={customer.id} value={customer.id.toString()}>
+                              <SelectItem key={customer.id} value={customer.id}>
                                 {customer.name} ({customer.phone}) - Credit: {formatCurrency(customer.totalCredit)}
                               </SelectItem>
                             ))}

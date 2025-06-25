@@ -25,7 +25,7 @@ interface DashboardMetrics {
 }
 
 interface Sale {
-  id: number;
+  id: string;
   totalAmount: string;
   paymentStatus: string;
   saleType: string;
@@ -43,7 +43,7 @@ interface Sale {
 }
 
 interface LowStockItem {
-  id: number;
+  id: string;
   name: string;
   sku: string;
   currentStock: number;
@@ -51,7 +51,7 @@ interface LowStockItem {
 }
 
 interface OverdueCredit {
-  id: number;
+  id: string;
   amount: string;
   dueDate: string;
   customer: {

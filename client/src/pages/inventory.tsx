@@ -12,11 +12,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { getInventoryItems, createInventoryItem, updateInventoryItem, deleteInventoryItem } from "@/lib/firestore";
 
 interface InventoryItem {
-  id: number;
+  id: string;
   name: string;
   category: string;
   material: string;
@@ -54,7 +55,8 @@ export default function Inventory() {
   const { toast } = useToast();
 
   const { data: items, isLoading } = useQuery<InventoryItem[]>({
-    queryKey: ['/api/inventory'],
+    queryKey: ['inventory'],
+    queryFn: getInventoryItems,
   });
 
   const form = useForm<InventoryItemForm>({
@@ -76,10 +78,10 @@ export default function Inventory() {
 
   const createMutation = useMutation({
     mutationFn: async (data: InventoryItemForm) => {
-      await apiRequest('POST', '/api/inventory', data);
+      await createInventoryItem(data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
       toast({ title: "Success", description: "Item added successfully" });
       setShowAddDialog(false);
       form.reset();
@@ -94,11 +96,11 @@ export default function Inventory() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Partial<InventoryItemForm> }) => {
-      await apiRequest('PUT', `/api/inventory/${id}`, data);
+    mutationFn: async ({ id, data }: { id: string; data: Partial<InventoryItemForm> }) => {
+      await updateInventoryItem(id, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
       toast({ title: "Success", description: "Item updated successfully" });
       setEditingItem(null);
       form.reset();
@@ -113,11 +115,11 @@ export default function Inventory() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (id: number) => {
-      await apiRequest('DELETE', `/api/inventory/${id}`);
+    mutationFn: async (id: string) => {
+      await deleteInventoryItem(id);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
       toast({ title: "Success", description: "Item deleted successfully" });
     },
     onError: (error) => {
@@ -162,7 +164,7 @@ export default function Inventory() {
     setShowAddDialog(true);
   };
 
-  const handleDelete = (id: number) => {
+  const handleDelete = (id: string) => {
     if (confirm("Are you sure you want to delete this item?")) {
       deleteMutation.mutate(id);
     }

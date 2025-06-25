@@ -12,11 +12,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { getExpenses, createExpense } from "@/lib/firestore";
 
 interface Expense {
-  id: number;
+  id: string;
   category: string;
   description: string;
   amount: string;
@@ -61,7 +62,8 @@ export default function Expenses() {
   const { toast } = useToast();
 
   const { data: expenses, isLoading } = useQuery<Expense[]>({
-    queryKey: ['/api/expenses'],
+    queryKey: ['expenses'],
+    queryFn: getExpenses,
   });
 
   const form = useForm<ExpenseForm>({
@@ -83,10 +85,10 @@ export default function Expenses() {
         ...data,
         expenseDate: new Date(data.expenseDate).toISOString(),
       };
-      await apiRequest('POST', '/api/expenses', payload);
+      await createExpense(payload);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/expenses'] });
+      queryClient.invalidateQueries({ queryKey: ['expenses'] });
       toast({ title: "Success", description: "Expense recorded successfully" });
       setShowAddDialog(false);
       form.reset();

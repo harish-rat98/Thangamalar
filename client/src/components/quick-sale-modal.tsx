@@ -9,16 +9,17 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
+import { getCustomers, getInventoryItems, createSale } from "@/lib/firestore";
 
 interface Customer {
-  id: number;
+  id: string;
   name: string;
   phone: string;
 }
 
 interface InventoryItem {
-  id: number;
+  id: string;
   name: string;
   sku: string;
   sellingPrice: string;
@@ -28,7 +29,7 @@ interface InventoryItem {
 }
 
 interface SaleItem {
-  itemId?: number;
+  itemId?: string;
   itemName: string;
   quantity: number;
   unitPrice: string;
@@ -43,7 +44,7 @@ interface QuickSaleModalProps {
 }
 
 export default function QuickSaleModal({ open, onOpenChange }: QuickSaleModalProps) {
-  const [selectedCustomer, setSelectedCustomer] = useState<number | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
   const [saleItems, setSaleItems] = useState<SaleItem[]>([]);
   const [saleType, setSaleType] = useState<string>("inventory");
   const [paymentMethod, setPaymentMethod] = useState<string>("cash");
@@ -52,23 +53,25 @@ export default function QuickSaleModal({ open, onOpenChange }: QuickSaleModalPro
   const { toast } = useToast();
 
   const { data: customers } = useQuery<Customer[]>({
-    queryKey: ['/api/customers'],
+    queryKey: ['customers'],
+    queryFn: getCustomers,
     enabled: open,
   });
 
   const { data: inventoryItems } = useQuery<InventoryItem[]>({
-    queryKey: ['/api/inventory'],
+    queryKey: ['inventory'],
+    queryFn: getInventoryItems,
     enabled: open,
   });
 
   const createSaleMutation = useMutation({
     mutationFn: async (saleData: any) => {
-      await apiRequest('POST', '/api/sales', saleData);
+      await createSale(saleData.sale, saleData.items);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/sales'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/metrics'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/recent-sales'] });
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-metrics'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-sales'] });
       toast({ title: "Success", description: "Sale completed successfully" });
       handleClose();
     },
@@ -241,15 +244,15 @@ export default function QuickSaleModal({ open, onOpenChange }: QuickSaleModalPro
             </Label>
             <div className="flex space-x-2">
               <Select 
-                value={selectedCustomer?.toString() || ""} 
-                onValueChange={(value) => setSelectedCustomer(parseInt(value))}
+                value={selectedCustomer || ""} 
+                onValueChange={(value) => setSelectedCustomer(value)}
               >
                 <SelectTrigger className="flex-1">
                   <SelectValue placeholder="Select existing customer or leave empty for walk-in" />
                 </SelectTrigger>
                 <SelectContent>
                   {customers?.map((customer) => (
-                    <SelectItem key={customer.id} value={customer.id.toString()}>
+                    <SelectItem key={customer.id} value={customer.id}>
                       {customer.name} ({customer.phone})
                     </SelectItem>
                   ))}
