@@ -40,29 +40,249 @@ export const convertDocsWithTimestamps = (snapshot: QuerySnapshot<DocumentData>)
   }));
 };
 
-// Inventory operations
+// Updated Inventory Item interface - Weight-based system
+interface InventoryItemData {
+  name: string;
+  category: string;
+  material: string;
+  quantity: number;
+  weightPerPiece: string; // grams per piece
+  totalWeight: string; // auto-calculated: quantity * weightPerPiece
+  minStockLevel: number;
+  sku: string;
+  barcode?: string;
+  description?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Updated Sale interface with flexible pricing
+interface SaleData {
+  customerId?: string;
+  saleType: 'inventory' | 'commission' | 'custom_order';
+  totalAmount: string;
+  makingChargesPercentage: string;
+  wastagePercentage: string;
+  additionalCharges: string;
+  taxPercentage: string;
+  taxAmount: string;
+  discountAmount: string;
+  paymentMethod: string;
+  paymentStatus: 'paid' | 'partial' | 'pending';
+  cashReceived: string;
+  cardUpiReceived: string;
+  creditAmount: string;
+  commissionPercentage?: string;
+  commissionAmount?: string;
+  notes?: string;
+  receiptNumber?: string;
+  createdAt: Date;
+}
+
+// Updated Sale Item interface
+interface SaleItemData {
+  itemId?: string; // null for custom items
+  itemName: string;
+  quantity: number;
+  metalType: string;
+  weightGrams: string;
+  unitPrice: string; // calculated price per gram
+  totalPrice: string;
+  isCustomItem: boolean;
+}
+
+// Daily Prices interface
+interface DailyPricesData {
+  date: Date;
+  goldPricePerGram: string;
+  silverPricePerGram: string;
+  platinumPricePerGram?: string;
+  updatedBy?: string;
+  createdAt: Date;
+}
+
+// Settings interface
+interface SettingsData {
+  businessInfo: {
+    shopName: string;
+    address: string;
+    contactNumber: string;
+    email: string;
+    gstNumber: string;
+    registrationNumber: string;
+  };
+  defaultValues: {
+    makingChargesPercentage: string;
+    wastagePercentage: string;
+    taxPercentage: string;
+  };
+  priceSettings: {
+    currentGoldPrice: string;
+    currentSilverPrice: string;
+    currentPlatinumPrice: string;
+  };
+  userPreferences: {
+    dateFormat: string;
+    currencyDisplay: string;
+    notifications: boolean;
+  };
+  updatedAt: Date;
+}
+
+// Enhanced Expense interface
+interface ExpenseData {
+  category: string;
+  description: string;
+  amount: string;
+  material?: string;
+  receiptNumber?: string;
+  vendorName?: string;
+  expenseDate: Date;
+  createdAt: Date;
+}
+
+// Enhanced Customer interface
+interface CustomerData {
+  name: string;
+  phone: string;
+  email?: string;
+  address?: string;
+  city?: string;
+  totalPurchases: string;
+  totalCredit: string;
+  creditLimit: string;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Enhanced Credit Transaction interface
+interface CreditTransactionData {
+  customerId: string;
+  saleId?: string;
+  type: 'credit' | 'payment';
+  amount: string;
+  balanceAfter: string;
+  dueDate?: Date;
+  notes?: string;
+  createdBy?: string;
+  createdAt: Date;
+}
+
+// DAILY PRICE MANAGEMENT
+export const getDailyPrices = async (date?: Date): Promise<DailyPricesData | null> => {
+  const targetDate = date || new Date();
+  const dateString = targetDate.toISOString().split('T')[0];
+  
+  const q = query(
+    collection(db, 'dailyPrices'),
+    where('date', '>=', new Date(dateString)),
+    where('date', '<', new Date(new Date(dateString).getTime() + 24 * 60 * 60 * 1000)),
+    limit(1)
+  );
+  
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) {
+    // Return default prices if no entry found
+    return {
+      date: targetDate,
+      goldPricePerGram: "9200",
+      silverPricePerGram: "110",
+      platinumPricePerGram: "3500",
+      createdAt: targetDate,
+    };
+  }
+  
+  const doc = snapshot.docs[0];
+  return { id: doc.id, ...convertTimestamps(doc.data()) } as DailyPricesData;
+};
+
+export const setDailyPrices = async (prices: Partial<DailyPricesData>): Promise<string> => {
+  const today = new Date();
+  const dateString = today.toISOString().split('T')[0];
+  
+  // Check if prices already exist for today
+  const existingPrices = await getDailyPrices(today);
+  
+  const priceData = {
+    date: today,
+    goldPricePerGram: prices.goldPricePerGram || "9200",
+    silverPricePerGram: prices.silverPricePerGram || "110",
+    platinumPricePerGram: prices.platinumPricePerGram || "3500",
+    updatedBy: prices.updatedBy || "system",
+    createdAt: new Date(),
+  };
+  
+  if (existingPrices && existingPrices.id) {
+    // Update existing entry
+    const docRef = doc(db, 'dailyPrices', existingPrices.id);
+    await updateDoc(docRef, { ...priceData, updatedAt: new Date() });
+    return existingPrices.id;
+  } else {
+    // Create new entry
+    const docRef = await addDoc(collection(db, 'dailyPrices'), priceData);
+    return docRef.id;
+  }
+};
+
+export const getPriceHistory = async (days: number = 30): Promise<DailyPricesData[]> => {
+  const endDate = new Date();
+  const startDate = new Date(endDate.getTime() - (days * 24 * 60 * 60 * 1000));
+  
+  const q = query(
+    collection(db, 'dailyPrices'),
+    where('date', '>=', startDate),
+    where('date', '<=', endDate),
+    orderBy('date', 'desc')
+  );
+  
+  const snapshot = await getDocs(q);
+  return convertDocsWithTimestamps(snapshot);
+};
+
+// INVENTORY OPERATIONS - Updated for weight-based system
 export const getInventoryItems = async () => {
   const q = query(collection(db, 'inventoryItems'), orderBy('name'));
   const snapshot = await getDocs(q);
   return convertDocsWithTimestamps(snapshot);
 };
 
-export const createInventoryItem = async (item: any) => {
+export const createInventoryItem = async (item: Partial<InventoryItemData>) => {
+  // Calculate total weight
+  const quantity = item.quantity || 0;
+  const weightPerPiece = parseFloat(item.weightPerPiece || "0");
+  const totalWeight = (quantity * weightPerPiece).toString();
+  
   const docRef = await addDoc(collection(db, 'inventoryItems'), {
     ...item,
+    totalWeight,
     createdAt: new Date(),
     updatedAt: new Date(),
   });
+  
   const doc = await getDoc(docRef);
   return { id: doc.id, ...convertTimestamps(doc.data()) };
 };
 
-export const updateInventoryItem = async (id: string, item: any) => {
+export const updateInventoryItem = async (id: string, item: Partial<InventoryItemData>) => {
+  // Recalculate total weight if quantity or weightPerPiece changed
+  if (item.quantity !== undefined || item.weightPerPiece !== undefined) {
+    const currentDoc = await getDoc(doc(db, 'inventoryItems', id));
+    const currentData = currentDoc.data();
+    
+    const quantity = item.quantity !== undefined ? item.quantity : currentData?.quantity || 0;
+    const weightPerPiece = item.weightPerPiece !== undefined ? 
+      parseFloat(item.weightPerPiece) : parseFloat(currentData?.weightPerPiece || "0");
+    
+    item.totalWeight = (quantity * weightPerPiece).toString();
+  }
+  
   const docRef = doc(db, 'inventoryItems', id);
   await updateDoc(docRef, {
     ...item,
     updatedAt: new Date(),
   });
+  
   const updatedDoc = await getDoc(docRef);
   return { id: updatedDoc.id, ...convertTimestamps(updatedDoc.data()) };
 };
@@ -74,65 +294,80 @@ export const deleteInventoryItem = async (id: string) => {
 export const getLowStockItems = async () => {
   const q = query(
     collection(db, 'inventoryItems'),
-    where('currentStock', '<=', 5),
-    orderBy('currentStock')
+    where('quantity', '<=', 5),
+    orderBy('quantity')
   );
   const snapshot = await getDocs(q);
   return convertDocsWithTimestamps(snapshot);
 };
 
-// Customer operations
+// CUSTOMER OPERATIONS - Enhanced
 export const getCustomers = async () => {
   const q = query(collection(db, 'customers'), orderBy('createdAt', 'desc'));
   const snapshot = await getDocs(q);
   return convertDocsWithTimestamps(snapshot);
 };
 
-export const createCustomer = async (customer: any) => {
+export const createCustomer = async (customer: Partial<CustomerData>) => {
   const docRef = await addDoc(collection(db, 'customers'), {
     ...customer,
-    totalPurchases: "0",
-    totalCredit: "0",
+    totalPurchases: customer.totalPurchases || "0",
+    totalCredit: customer.totalCredit || "0",
     isActive: true,
     createdAt: new Date(),
     updatedAt: new Date(),
   });
+  
   const doc = await getDoc(docRef);
   return { id: doc.id, ...convertTimestamps(doc.data()) };
 };
 
-export const updateCustomer = async (id: string, customer: any) => {
+export const updateCustomer = async (id: string, customer: Partial<CustomerData>) => {
   const docRef = doc(db, 'customers', id);
   await updateDoc(docRef, {
     ...customer,
     updatedAt: new Date(),
   });
+  
   const updatedDoc = await getDoc(docRef);
   return { id: updatedDoc.id, ...convertTimestamps(updatedDoc.data()) };
 };
 
-export const importCustomers = async (customers: any[]) => {
+export const importCustomers = async (customers: Partial<CustomerData>[]): Promise<number> => {
   const batch = writeBatch(db);
   const customerRefs: any[] = [];
 
-  customers.forEach(customer => {
+  for (const customer of customers) {
     const customerRef = doc(collection(db, 'customers'));
     batch.set(customerRef, {
       ...customer,
-      totalPurchases: "0",
-      totalCredit: "0",
+      totalPurchases: customer.totalPurchases || "0",
+      totalCredit: customer.totalCredit || "0",
       isActive: true,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
     customerRefs.push(customerRef);
-  });
+    
+    // If customer has initial credit, create a credit transaction
+    if (customer.totalCredit && parseFloat(customer.totalCredit) > 0) {
+      const creditRef = doc(collection(db, 'creditTransactions'));
+      batch.set(creditRef, {
+        customerId: customerRef.id,
+        type: 'credit',
+        amount: customer.totalCredit,
+        balanceAfter: customer.totalCredit,
+        notes: 'Initial credit from import',
+        createdAt: new Date(),
+      });
+    }
+  }
 
   await batch.commit();
   return customerRefs.length;
 };
 
-// Sales operations
+// SALES OPERATIONS - Enhanced with flexible pricing
 export const getSales = async (limitCount = 50) => {
   const q = query(
     collection(db, 'sales'),
@@ -173,21 +408,86 @@ export const getSales = async (limitCount = 50) => {
   return sales;
 };
 
-export const createSale = async (saleData: any, saleItems: any[]) => {
+export const createSale = async (saleData: Partial<SaleData>, saleItems: Partial<SaleItemData>[]) => {
   return await runTransaction(db, async (transaction) => {
+    // Get current daily prices for calculations
+    const dailyPrices = await getDailyPrices();
+    
     // Generate receipt number
     const receiptNumber = `RCP-${Date.now()}`;
+    
+    // Calculate total amount based on items and pricing
+    let calculatedTotal = 0;
+    const processedItems: any[] = [];
+    
+    for (const item of saleItems) {
+      let itemTotal = 0;
+      
+      if (item.isCustomItem) {
+        // Custom item calculation
+        const weight = parseFloat(item.weightGrams || "0");
+        const pricePerGram = item.metalType === 'gold' ? 
+          parseFloat(dailyPrices?.goldPricePerGram || "9200") :
+          parseFloat(dailyPrices?.silverPricePerGram || "110");
+        
+        itemTotal = weight * pricePerGram;
+      } else {
+        // Inventory item calculation
+        const weight = parseFloat(item.weightGrams || "0");
+        const pricePerGram = item.metalType === 'gold' ? 
+          parseFloat(dailyPrices?.goldPricePerGram || "9200") :
+          parseFloat(dailyPrices?.silverPricePerGram || "110");
+        
+        itemTotal = weight * pricePerGram * item.quantity!;
+      }
+      
+      // Apply making charges and wastage
+      const makingCharges = itemTotal * (parseFloat(saleData.makingChargesPercentage || "0") / 100);
+      const wastage = itemTotal * (parseFloat(saleData.wastagePercentage || "0") / 100);
+      
+      itemTotal += makingCharges + wastage;
+      calculatedTotal += itemTotal;
+      
+      processedItems.push({
+        ...item,
+        unitPrice: (itemTotal / (item.quantity || 1)).toString(),
+        totalPrice: itemTotal.toString(),
+        saleId: '', // Will be set after sale creation
+      });
+    }
+    
+    // Add additional charges
+    calculatedTotal += parseFloat(saleData.additionalCharges || "0");
+    
+    // Calculate tax
+    const taxAmount = calculatedTotal * (parseFloat(saleData.taxPercentage || "0") / 100);
+    calculatedTotal += taxAmount;
+    
+    // Determine payment status
+    const cashReceived = parseFloat(saleData.cashReceived || "0");
+    const cardUpiReceived = parseFloat(saleData.cardUpiReceived || "0");
+    const totalReceived = cashReceived + cardUpiReceived;
+    const creditAmount = Math.max(0, calculatedTotal - totalReceived);
+    
+    let paymentStatus: 'paid' | 'partial' | 'pending' = 'paid';
+    if (creditAmount > 0) {
+      paymentStatus = totalReceived > 0 ? 'partial' : 'pending';
+    }
     
     // Create sale
     const saleRef = doc(collection(db, 'sales'));
     transaction.set(saleRef, {
       ...saleData,
       receiptNumber,
+      totalAmount: calculatedTotal.toString(),
+      taxAmount: taxAmount.toString(),
+      creditAmount: creditAmount.toString(),
+      paymentStatus,
       createdAt: new Date(),
     });
 
     // Create sale items
-    saleItems.forEach(item => {
+    processedItems.forEach(item => {
       const itemRef = doc(collection(db, 'saleItems'));
       transaction.set(itemRef, {
         ...item,
@@ -198,13 +498,21 @@ export const createSale = async (saleData: any, saleItems: any[]) => {
     // Update inventory for inventory sales
     if (saleData.saleType === 'inventory') {
       for (const item of saleItems) {
-        if (item.itemId) {
+        if (item.itemId && !item.isCustomItem) {
           const inventoryRef = doc(db, 'inventoryItems', item.itemId);
           const inventoryDoc = await transaction.get(inventoryRef);
           if (inventoryDoc.exists()) {
-            const currentStock = inventoryDoc.data()?.currentStock || 0;
+            const currentQuantity = inventoryDoc.data()?.quantity || 0;
+            const newQuantity = currentQuantity - (item.quantity || 0);
+            
+            // Recalculate total weight
+            const weightPerPiece = parseFloat(inventoryDoc.data()?.weightPerPiece || "0");
+            const newTotalWeight = (newQuantity * weightPerPiece).toString();
+            
             transaction.update(inventoryRef, {
-              currentStock: currentStock - item.quantity,
+              quantity: newQuantity,
+              totalWeight: newTotalWeight,
+              updatedAt: new Date(),
             });
           }
         }
@@ -212,21 +520,17 @@ export const createSale = async (saleData: any, saleItems: any[]) => {
     }
 
     // Create credit transaction if needed
-    if ((saleData.paymentStatus === 'pending' || saleData.paymentStatus === 'partial') && saleData.customerId) {
-      const creditAmount = Number(saleData.totalAmount) - Number(saleData.paidAmount || 0);
-      if (creditAmount > 0) {
-        const creditRef = doc(collection(db, 'creditTransactions'));
-        transaction.set(creditRef, {
-          customerId: saleData.customerId,
-          saleId: saleRef.id,
-          type: 'credit',
-          amount: creditAmount.toString(),
-          balanceAfter: creditAmount.toString(),
-          dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-          createdBy: saleData.createdBy,
-          createdAt: new Date(),
-        });
-      }
+    if (creditAmount > 0 && saleData.customerId) {
+      const creditRef = doc(collection(db, 'creditTransactions'));
+      transaction.set(creditRef, {
+        customerId: saleData.customerId,
+        saleId: saleRef.id,
+        type: 'credit',
+        amount: creditAmount.toString(),
+        balanceAfter: creditAmount.toString(), // Will be recalculated in updateCustomerTotals
+        notes: `Credit from sale ${receiptNumber}`,
+        createdAt: new Date(),
+      });
     }
 
     return saleRef.id;
@@ -244,13 +548,14 @@ export const updateCustomerTotals = async (customerId: string) => {
     const salesSnapshot = await getDocs(salesQuery);
     
     const totalPurchases = salesSnapshot.docs.reduce((sum, doc) => {
-      return sum + Number(doc.data().totalAmount || 0);
+      return sum + parseFloat(doc.data().totalAmount || "0");
     }, 0);
 
     // Get credit transactions
     const creditsQuery = query(
       collection(db, 'creditTransactions'),
-      where('customerId', '==', customerId)
+      where('customerId', '==', customerId),
+      orderBy('createdAt')
     );
     const creditsSnapshot = await getDocs(creditsQuery);
     
@@ -258,9 +563,9 @@ export const updateCustomerTotals = async (customerId: string) => {
     creditsSnapshot.docs.forEach(doc => {
       const data = doc.data();
       if (data.type === 'credit') {
-        totalCredit += Number(data.amount || 0);
+        totalCredit += parseFloat(data.amount || "0");
       } else if (data.type === 'payment') {
-        totalCredit -= Number(data.amount || 0);
+        totalCredit -= parseFloat(data.amount || "0");
       }
     });
 
@@ -274,7 +579,7 @@ export const updateCustomerTotals = async (customerId: string) => {
   });
 };
 
-// Credit operations
+// CREDIT OPERATIONS - Enhanced
 export const getCreditTransactions = async (customerId?: string) => {
   let q = query(collection(db, 'creditTransactions'), orderBy('createdAt', 'desc'));
   
@@ -305,14 +610,16 @@ export const getCreditTransactions = async (customerId?: string) => {
   return transactions;
 };
 
-export const createCreditTransaction = async (transaction: any) => {
+export const createCreditTransaction = async (transaction: Partial<CreditTransactionData>) => {
   const docRef = await addDoc(collection(db, 'creditTransactions'), {
     ...transaction,
     createdAt: new Date(),
   });
   
   // Update customer totals
-  await updateCustomerTotals(transaction.customerId);
+  if (transaction.customerId) {
+    await updateCustomerTotals(transaction.customerId);
+  }
   
   const doc = await getDoc(docRef);
   return { id: doc.id, ...convertTimestamps(doc.data()) };
@@ -345,23 +652,84 @@ export const getOverdueCredits = async () => {
   return credits;
 };
 
-// Expense operations
+// EXPENSE OPERATIONS - Enhanced
 export const getExpenses = async () => {
   const q = query(collection(db, 'expenses'), orderBy('expenseDate', 'desc'));
   const snapshot = await getDocs(q);
   return convertDocsWithTimestamps(snapshot);
 };
 
-export const createExpense = async (expense: any) => {
+export const createExpense = async (expense: Partial<ExpenseData>) => {
   const docRef = await addDoc(collection(db, 'expenses'), {
     ...expense,
+    expenseDate: expense.expenseDate || new Date(),
     createdAt: new Date(),
   });
+  
   const doc = await getDoc(docRef);
   return { id: doc.id, ...convertTimestamps(doc.data()) };
 };
 
-// Dashboard metrics
+// SETTINGS OPERATIONS - New
+export const getSettings = async (): Promise<SettingsData | null> => {
+  const q = query(collection(db, 'settings'), limit(1));
+  const snapshot = await getDocs(q);
+  
+  if (snapshot.empty) {
+    // Return default settings
+    return {
+      businessInfo: {
+        shopName: "Thanga Malar Jewellery",
+        address: "",
+        contactNumber: "",
+        email: "",
+        gstNumber: "",
+        registrationNumber: "",
+      },
+      defaultValues: {
+        makingChargesPercentage: "15",
+        wastagePercentage: "2",
+        taxPercentage: "3",
+      },
+      priceSettings: {
+        currentGoldPrice: "9200",
+        currentSilverPrice: "110",
+        currentPlatinumPrice: "3500",
+      },
+      userPreferences: {
+        dateFormat: "DD/MM/YYYY",
+        currencyDisplay: "INR",
+        notifications: true,
+      },
+      updatedAt: new Date(),
+    };
+  }
+  
+  const doc = snapshot.docs[0];
+  return { id: doc.id, ...convertTimestamps(doc.data()) } as SettingsData;
+};
+
+export const updateSettings = async (settings: Partial<SettingsData>): Promise<string> => {
+  const existingSettings = await getSettings();
+  
+  const settingsData = {
+    ...settings,
+    updatedAt: new Date(),
+  };
+  
+  if (existingSettings && existingSettings.id) {
+    // Update existing settings
+    const docRef = doc(db, 'settings', existingSettings.id);
+    await updateDoc(docRef, settingsData);
+    return existingSettings.id;
+  } else {
+    // Create new settings
+    const docRef = await addDoc(collection(db, 'settings'), settingsData);
+    return docRef.id;
+  }
+};
+
+// DASHBOARD METRICS - Enhanced
 export const getDashboardMetrics = async () => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -377,43 +745,69 @@ export const getDashboardMetrics = async () => {
   const todaySalesSnapshot = await getDocs(todaySalesQuery);
   
   const todaySales = todaySalesSnapshot.docs.reduce((sum, doc) => {
-    return sum + Number(doc.data().totalAmount || 0);
+    return sum + parseFloat(doc.data().totalAmount || "0");
   }, 0);
 
-  // Inventory value
+  // Inventory value (based on current prices and total weight)
+  const dailyPrices = await getDailyPrices();
   const inventorySnapshot = await getDocs(collection(db, 'inventoryItems'));
+  
   const inventoryValue = inventorySnapshot.docs.reduce((sum, doc) => {
     const data = doc.data();
-    return sum + (Number(data.sellingPrice || 0) * Number(data.currentStock || 0));
+    const totalWeight = parseFloat(data.totalWeight || "0");
+    const pricePerGram = data.material === 'gold' ? 
+      parseFloat(dailyPrices?.goldPricePerGram || "9200") :
+      parseFloat(dailyPrices?.silverPricePerGram || "110");
+    
+    return sum + (totalWeight * pricePerGram);
   }, 0);
 
   // Pending credits
   const customersSnapshot = await getDocs(collection(db, 'customers'));
   const pendingCredits = customersSnapshot.docs.reduce((sum, doc) => {
-    return sum + Number(doc.data().totalCredit || 0);
+    return sum + parseFloat(doc.data().totalCredit || "0");
   }, 0);
 
-  // Low stock count
+  // Low stock count (by quantity)
   const lowStockQuery = query(
     collection(db, 'inventoryItems'),
-    where('currentStock', '<=', 5)
+    where('quantity', '<=', 5)
   );
   const lowStockSnapshot = await getDocs(lowStockQuery);
+
+  // Sales by type
+  const salesByType = {
+    inventory: { amount: "0", count: 0 },
+    commission: { amount: "0", count: 0 },
+    custom_order: { amount: "0", count: 0 },
+  };
+
+  todaySalesSnapshot.docs.forEach(doc => {
+    const data = doc.data();
+    const saleType = data.saleType as keyof typeof salesByType;
+    if (salesByType[saleType]) {
+      salesByType[saleType].amount = (
+        parseFloat(salesByType[saleType].amount) + parseFloat(data.totalAmount || "0")
+      ).toString();
+      salesByType[saleType].count += 1;
+    }
+  });
 
   return {
     todaySales: todaySales.toString(),
     inventoryValue: inventoryValue.toString(),
     pendingCredits: pendingCredits.toString(),
     lowStockCount: lowStockSnapshot.size,
-    salesByType: {
-      inventory: { amount: "0", count: 0 },
-      commission: { amount: "0", count: 0 },
-      custom_order: { amount: "0", count: 0 },
+    salesByType,
+    currentPrices: {
+      gold: dailyPrices?.goldPricePerGram || "9200",
+      silver: dailyPrices?.silverPricePerGram || "110",
+      platinum: dailyPrices?.platinumPricePerGram || "3500",
     },
   };
 };
 
-// Report operations
+// REPORT OPERATIONS - Enhanced
 export const getSalesReport = async (startDate: Date, endDate: Date) => {
   const q = query(
     collection(db, 'sales'),
@@ -424,25 +818,45 @@ export const getSalesReport = async (startDate: Date, endDate: Date) => {
   const snapshot = await getDocs(q);
 
   // Group by date
-  const salesByDate: { [key: string]: { totalSales: number; count: number } } = {};
+  const salesByDate: { [key: string]: { totalSales: number; count: number; goldWeight: number; silverWeight: number } } = {};
   
-  snapshot.docs.forEach(doc => {
-    const data = doc.data();
+  for (const saleDoc of snapshot.docs) {
+    const data = saleDoc.data();
     const date = data.createdAt.toDate().toISOString().split('T')[0];
     
     if (!salesByDate[date]) {
-      salesByDate[date] = { totalSales: 0, count: 0 };
+      salesByDate[date] = { totalSales: 0, count: 0, goldWeight: 0, silverWeight: 0 };
     }
     
-    salesByDate[date].totalSales += Number(data.totalAmount || 0);
+    salesByDate[date].totalSales += parseFloat(data.totalAmount || "0");
     salesByDate[date].count += 1;
-  });
+    
+    // Get sale items to calculate metal weights
+    const itemsQuery = query(
+      collection(db, 'saleItems'),
+      where('saleId', '==', saleDoc.id)
+    );
+    const itemsSnapshot = await getDocs(itemsQuery);
+    
+    itemsSnapshot.docs.forEach(itemDoc => {
+      const itemData = itemDoc.data();
+      const weight = parseFloat(itemData.weightGrams || "0") * (itemData.quantity || 1);
+      
+      if (itemData.metalType === 'gold') {
+        salesByDate[date].goldWeight += weight;
+      } else if (itemData.metalType === 'silver') {
+        salesByDate[date].silverWeight += weight;
+      }
+    });
+  }
 
   return Object.entries(salesByDate).map(([date, data]) => ({
     date,
     totalSales: data.totalSales.toString(),
     totalTransactions: data.count,
     avgSaleAmount: (data.totalSales / data.count).toString(),
+    goldWeightSold: data.goldWeight.toString(),
+    silverWeightSold: data.silverWeight.toString(),
   }));
 };
 
@@ -456,7 +870,7 @@ export const getProfitLossReport = async (startDate: Date, endDate: Date) => {
   const salesSnapshot = await getDocs(salesQuery);
   
   const revenue = salesSnapshot.docs.reduce((sum, doc) => {
-    return sum + Number(doc.data().totalAmount || 0);
+    return sum + parseFloat(doc.data().totalAmount || "0");
   }, 0);
 
   // Get expenses
@@ -468,7 +882,7 @@ export const getProfitLossReport = async (startDate: Date, endDate: Date) => {
   const expensesSnapshot = await getDocs(expensesQuery);
   
   const expenses = expensesSnapshot.docs.reduce((sum, doc) => {
-    return sum + Number(doc.data().amount || 0);
+    return sum + parseFloat(doc.data().amount || "0");
   }, 0);
 
   const profit = revenue - expenses;
@@ -479,4 +893,53 @@ export const getProfitLossReport = async (startDate: Date, endDate: Date) => {
     profit: profit.toString(),
     profitMargin: revenue > 0 ? ((profit / revenue) * 100).toFixed(2) : "0",
   };
+};
+
+// New report functions
+export const getInventoryReport = async () => {
+  const inventorySnapshot = await getDocs(collection(db, 'inventoryItems'));
+  const dailyPrices = await getDailyPrices();
+  
+  const inventoryData = inventorySnapshot.docs.map(doc => {
+    const data = doc.data();
+    const totalWeight = parseFloat(data.totalWeight || "0");
+    const pricePerGram = data.material === 'gold' ? 
+      parseFloat(dailyPrices?.goldPricePerGram || "9200") :
+      parseFloat(dailyPrices?.silverPricePerGram || "110");
+    
+    return {
+      id: doc.id,
+      ...convertTimestamps(data),
+      currentValue: (totalWeight * pricePerGram).toString(),
+    };
+  });
+  
+  return inventoryData;
+};
+
+export const getCustomerReport = async () => {
+  const customersSnapshot = await getDocs(collection(db, 'customers'));
+  
+  const customerData = await Promise.all(
+    customersSnapshot.docs.map(async (customerDoc) => {
+      const data = { id: customerDoc.id, ...convertTimestamps(customerDoc.data()) };
+      
+      // Get recent transactions
+      const transactionsQuery = query(
+        collection(db, 'sales'),
+        where('customerId', '==', customerDoc.id),
+        orderBy('createdAt', 'desc'),
+        limit(5)
+      );
+      const transactionsSnapshot = await getDocs(transactionsQuery);
+      const recentTransactions = convertDocsWithTimestamps(transactionsSnapshot);
+      
+      return {
+        ...data,
+        recentTransactions,
+      };
+    })
+  );
+  
+  return customerData;
 };
