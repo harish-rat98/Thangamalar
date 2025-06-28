@@ -3,7 +3,7 @@ import { useAuth } from './useAuth';
 import { useAnalytics } from './useAnalytics';
 
 export const useFeatureLimits = () => {
-  const { userSubscription } = useAuth();
+  const { user, userSubscription } = useAuth();
   const { trackEvent } = useAnalytics();
   const [limitModal, setLimitModal] = useState<{
     isOpen: boolean;
@@ -18,7 +18,7 @@ export const useFeatureLimits = () => {
   });
 
   const checkLimit = (feature: 'inventory' | 'customers' | 'sales', currentCount: number) => {
-    if (!userSubscription) return false;
+    if (!userSubscription || !user) return false;
 
     const limits = {
       inventory: userSubscription.features.maxInventoryItems,
@@ -36,7 +36,7 @@ export const useFeatureLimits = () => {
     
     if (limit !== -1 && currentCount >= limit) {
       // Track feature limit hit
-      trackEvent('feature_limit_hit', { feature, currentCount, limit });
+      trackEvent(user.uid, 'feature_limit_hit', { feature, currentCount, limit });
       
       setLimitModal({
         isOpen: true,
@@ -55,7 +55,9 @@ export const useFeatureLimits = () => {
   };
 
   const showUpgradePrompt = () => {
-    trackEvent('upgrade_prompt_shown', { feature: limitModal.feature });
+    if (user) {
+      trackEvent(user.uid, 'upgrade_prompt_shown', { feature: limitModal.feature });
+    }
   };
 
   return {

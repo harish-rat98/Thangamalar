@@ -73,7 +73,7 @@ export const useAuth = () => {
           });
 
           // Track signup event
-          trackEvent('signup');
+          trackEvent(user.uid, 'signup');
           
           setUserSubscription(defaultSubscription);
         }
@@ -93,7 +93,7 @@ export const useAuth = () => {
 
   const signUp = async (email: string, password: string) => {
     const result = await createUserWithEmailAndPassword(auth, email, password);
-    trackEvent('trial_start');
+    trackEvent(result.user.uid, 'trial_start');
     return result;
   };
 
@@ -141,7 +141,7 @@ export const useAuth = () => {
     await setDoc(doc(db, 'users', user.uid), updatedSubscription);
     
     // Track upgrade event
-    trackEvent('upgrade_completed', { fromPlan: userSubscription?.plan, toPlan: newPlan });
+    trackEvent(user.uid, 'upgrade_completed', { fromPlan: userSubscription?.plan, toPlan: newPlan });
     
     // Send upgrade success notification
     if (newPlan !== 'free') {

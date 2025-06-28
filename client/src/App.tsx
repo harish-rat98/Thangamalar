@@ -21,7 +21,9 @@ function Dashboard() {
 
   const handleFeatureClick = (feature: 'inventory' | 'customers' | 'sales') => {
     // Track feature usage
-    trackFeatureUsage(feature);
+    if (user) {
+      trackFeatureUsage(user.uid, feature);
+    }
     
     // Simulate current counts for demo
     const currentCounts = {

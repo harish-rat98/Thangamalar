@@ -1,25 +1,22 @@
 import { useState, useEffect } from 'react';
 import { collection, addDoc, query, where, orderBy, getDocs, doc, updateDoc, increment } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { useAuth } from './useAuth';
 import { ConversionEvent, UserAnalytics } from '@/types/analytics';
 
 export const useAnalytics = () => {
-  const { user } = useAuth();
-
-  const trackEvent = async (eventType: ConversionEvent['eventType'], metadata?: Record<string, any>) => {
-    if (!user) return;
+  const trackEvent = async (userId: string, eventType: ConversionEvent['eventType'], metadata?: Record<string, any>) => {
+    if (!userId) return;
 
     try {
       await addDoc(collection(db, 'analytics_events'), {
-        userId: user.uid,
+        userId,
         eventType,
         timestamp: new Date(),
         metadata: metadata || {},
       });
 
       // Update user analytics
-      const userAnalyticsRef = doc(db, 'user_analytics', user.uid);
+      const userAnalyticsRef = doc(db, 'user_analytics', userId);
       await updateDoc(userAnalyticsRef, {
         lastActivity: new Date(),
         [`events.${eventType}`]: increment(1),
@@ -29,17 +26,17 @@ export const useAnalytics = () => {
     }
   };
 
-  const trackFeatureUsage = async (feature: string) => {
-    if (!user) return;
+  const trackFeatureUsage = async (userId: string, feature: string) => {
+    if (!userId) return;
 
     try {
       await addDoc(collection(db, 'feature_usage'), {
-        userId: user.uid,
+        userId,
         feature,
         timestamp: new Date(),
       });
 
-      const userAnalyticsRef = doc(db, 'user_analytics', user.uid);
+      const userAnalyticsRef = doc(db, 'user_analytics', userId);
       await updateDoc(userAnalyticsRef, {
         [`featureUsage.${feature}`]: increment(1),
         lastActivity: new Date(),
@@ -49,11 +46,11 @@ export const useAnalytics = () => {
     }
   };
 
-  const trackLogin = async () => {
-    if (!user) return;
+  const trackLogin = async (userId: string) => {
+    if (!userId) return;
 
     try {
-      const userAnalyticsRef = doc(db, 'user_analytics', user.uid);
+      const userAnalyticsRef = doc(db, 'user_analytics', userId);
       await updateDoc(userAnalyticsRef, {
         totalLogins: increment(1),
         lastLoginDate: new Date(),

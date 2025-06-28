@@ -10,12 +10,12 @@ export const AnalyticsTracker: React.FC<{ children: React.ReactNode }> = ({ chil
 
   useEffect(() => {
     if (user) {
-      trackLogin();
+      trackLogin(user.uid);
     }
   }, [user]);
 
   useEffect(() => {
-    if (userSubscription && userSubscription.plan === 'free' && userSubscription.trialEndDate) {
+    if (userSubscription && userSubscription.plan === 'free' && userSubscription.trialEndDate && user) {
       const trialEndDate = new Date(userSubscription.trialEndDate);
       const now = new Date();
       const daysLeft = Math.ceil((trialEndDate.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
@@ -23,8 +23,8 @@ export const AnalyticsTracker: React.FC<{ children: React.ReactNode }> = ({ chil
       // Schedule trial reminder 3 days before expiry
       if (daysLeft === 3) {
         scheduleNotification(
-          user!.uid,
-          user!.email!,
+          user.uid,
+          user.email!,
           'trial_reminder',
           new Date()
         );
@@ -33,14 +33,14 @@ export const AnalyticsTracker: React.FC<{ children: React.ReactNode }> = ({ chil
       // Schedule trial expired notification
       if (daysLeft <= 0) {
         scheduleNotification(
-          user!.uid,
-          user!.email!,
+          user.uid,
+          user.email!,
           'trial_expired',
           new Date()
         );
       }
     }
-  }, [userSubscription]);
+  }, [userSubscription, user]);
 
   return <>{children}</>;
 };
