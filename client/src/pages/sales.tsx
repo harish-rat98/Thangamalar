@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import QuickSaleModal from "@/components/quick-sale-modal";
+import ReceiptModal from "@/components/receipt-modal";
 import { getSales } from "@/lib/firestore";
 
 interface Sale {
@@ -16,6 +17,14 @@ interface Sale {
   paymentMethod: string;
   receiptNumber: string;
   createdAt: string;
+  makingChargesPercentage: string;
+  wastagePercentage: string;
+  additionalCharges: string;
+  taxPercentage: string;
+  taxAmount: string;
+  cashReceived: string;
+  cardUpiReceived: string;
+  creditAmount: string;
   customer?: {
     name: string;
     phone: string;
@@ -26,13 +35,15 @@ interface Sale {
     unitPrice: string;
     totalPrice: string;
     weightGrams?: string;
-    material?: string;
+    metalType?: string;
   }>;
 }
 
 export default function Sales() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showQuickSale, setShowQuickSale] = useState(false);
+  const [showReceipt, setShowReceipt] = useState(false);
+  const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
 
   const { data: sales, isLoading } = useQuery<Sale[]>({
     queryKey: ['sales'],
@@ -111,6 +122,11 @@ export default function Sales() {
     }
   };
 
+  const handlePrintReceipt = (sale: Sale) => {
+    setSelectedSale(sale);
+    setShowReceipt(true);
+  };
+
   const totalSales = filteredSales.reduce((sum, sale) => sum + parseFloat(sale.totalAmount), 0);
 
   return (
@@ -128,9 +144,6 @@ export default function Sales() {
               className="bg-jewelry-gold text-white hover:bg-jewelry-bronze"
             >
               <i className="fas fa-plus mr-2"></i>New Sale
-            </Button>
-            <Button variant="outline">
-              <i className="fas fa-receipt mr-2"></i>Generate Receipt
             </Button>
             <Button variant="outline">
               <i className="fas fa-barcode mr-2"></i>Scan Item
@@ -319,7 +332,7 @@ export default function Sales() {
                               <p className="text-xs text-gray-600">
                                 Qty: {item.quantity}
                                 {item.weightGrams && ` • ${item.weightGrams}g`}
-                                {item.material && ` • ${item.material}`}
+                                {item.metalType && ` • ${item.metalType}`}
                               </p>
                             </div>
                             <p className="font-medium text-sm">{formatCurrency(item.totalPrice)}</p>
@@ -333,7 +346,11 @@ export default function Sales() {
                       <Button variant="ghost" size="sm">
                         <i className="fas fa-eye mr-1"></i>View
                       </Button>
-                      <Button variant="ghost" size="sm">
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => handlePrintReceipt(sale)}
+                      >
                         <i className="fas fa-print mr-1"></i>Print Receipt
                       </Button>
                       <Button variant="ghost" size="sm">
@@ -354,6 +371,14 @@ export default function Sales() {
       </div>
 
       <QuickSaleModal open={showQuickSale} onOpenChange={setShowQuickSale} />
+      
+      {selectedSale && (
+        <ReceiptModal 
+          open={showReceipt} 
+          onOpenChange={setShowReceipt}
+          saleData={selectedSale}
+        />
+      )}
     </>
   );
 }

@@ -7,13 +7,25 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { getSalesReport, getProfitLossReport } from "@/lib/firestore";
+import { useToast } from "@/hooks/use-toast";
+import { 
+  getSalesReport, 
+  getProfitLossReport, 
+  getInventoryReport, 
+  getCustomerReport,
+  getSales,
+  getInventoryItems,
+  getCustomers,
+  getExpenses
+} from "@/lib/firestore";
 
 interface SalesReportData {
   date: string;
   totalSales: string;
   totalTransactions: number;
   avgSaleAmount: string;
+  goldWeightSold: string;
+  silverWeightSold: string;
 }
 
 interface ProfitLossData {
@@ -31,6 +43,7 @@ export default function Reports() {
   const [endDate, setEndDate] = useState(
     new Date().toISOString().split('T')[0]
   );
+  const { toast } = useToast();
 
   const { data: salesReport, isLoading: salesLoading } = useQuery<SalesReportData[]>({
     queryKey: ['sales-report', startDate, endDate],
@@ -40,6 +53,36 @@ export default function Reports() {
   const { data: profitLossReport, isLoading: profitLossLoading } = useQuery<ProfitLossData>({
     queryKey: ['profit-loss-report', startDate, endDate],
     queryFn: () => getProfitLossReport(new Date(startDate), new Date(endDate)),
+  });
+
+  const { data: inventoryReport, isLoading: inventoryLoading } = useQuery({
+    queryKey: ['inventory-report'],
+    queryFn: getInventoryReport,
+  });
+
+  const { data: customerReport, isLoading: customerLoading } = useQuery({
+    queryKey: ['customer-report'],
+    queryFn: getCustomerReport,
+  });
+
+  const { data: allSales } = useQuery({
+    queryKey: ['all-sales-export'],
+    queryFn: () => getSales(1000),
+  });
+
+  const { data: allInventory } = useQuery({
+    queryKey: ['all-inventory-export'],
+    queryFn: getInventoryItems,
+  });
+
+  const { data: allCustomers } = useQuery({
+    queryKey: ['all-customers-export'],
+    queryFn: getCustomers,
+  });
+
+  const { data: allExpenses } = useQuery({
+    queryKey: ['all-expenses-export'],
+    queryFn: getExpenses,
   });
 
   const formatCurrency = (amount: string | number) => {
@@ -91,6 +134,175 @@ export default function Reports() {
     }
   };
 
+  // Export Functions
+  const exportToCSV = (data: any[], filename: string, headers: string[]) => {
+    const csvContent = [
+      headers.join(','),
+      ...data.map(row => headers.map(header => {
+        const value = row[header] || '';
+        return typeof value === 'string' && value.includes(',') ? `"${value}"` : value;
+      }).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${filename}_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const exportToExcel = (data: any[], filename: string) => {
+    // Simple Excel export using HTML table format
+    const table = document.createElement('table');
+    
+    if (data.length > 0) {
+      // Create header row
+      const headerRow = table.insertRow();
+      Object.keys(data[0]).forEach(key => {
+        const cell = headerRow.insertCell();
+        cell.textContent = key;
+        cell.style.fontWeight = 'bold';
+        cell.style.backgroundColor = '#f0f0f0';
+      });
+
+      // Create data rows
+      data.forEach(item => {
+        const row = table.insertRow();
+        Object.values(item).forEach(value => {
+          const cell = row.insertCell();
+          cell.textContent = String(value);
+        });
+      });
+    }
+
+    const html = `
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <title>${filename}</title>
+        </head>
+        <body>
+          ${table.outerHTML}
+        </body>
+      </html>
+    `;
+
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${filename}_${new Date().toISOString().split('T')[0]}.xls`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const printReport = (title: string, content: HTMLElement) => {
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>${title}</title>
+            <style>
+              body { font-family: Arial, sans-serif; margin: 20px; }
+              table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+              th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+              th { background-color: #f2f2f2; font-weight: bold; }
+              .header { text-align: center; margin-bottom: 30px; }
+              .date-range { text-align: center; margin-bottom: 20px; color: #666; }
+              @media print { 
+                body { margin: 0; }
+                .no-print { display: none; }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <h1>Thanga Malar Jewellery</h1>
+              <h2>${title}</h2>
+            </div>
+            <div class="date-range">
+              Report Period: ${new Date(startDate).toLocaleDateString('en-IN')} to ${new Date(endDate).toLocaleDateString('en-IN')}
+            </div>
+            ${content.innerHTML}
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.print();
+    }
+  };
+
+  const exportSalesReport = (format: 'csv' | 'excel') => {
+    if (!salesReport) return;
+    
+    const data = salesReport.map(item => ({
+      Date: formatDate(item.date),
+      'Total Sales': item.totalSales,
+      'Transactions': item.totalTransactions,
+      'Average Sale': item.avgSaleAmount,
+      'Gold Weight (g)': item.goldWeightSold,
+      'Silver Weight (g)': item.silverWeightSold
+    }));
+
+    if (format === 'csv') {
+      exportToCSV(data, 'sales_report', Object.keys(data[0] || {}));
+    } else {
+      exportToExcel(data, 'sales_report');
+    }
+    
+    toast({ title: "Success", description: `Sales report exported as ${format.toUpperCase()}` });
+  };
+
+  const exportInventoryReport = (format: 'csv' | 'excel') => {
+    if (!inventoryReport) return;
+    
+    const data = inventoryReport.map(item => ({
+      'Item Name': item.name,
+      'SKU': item.sku,
+      'Category': item.category,
+      'Material': item.material,
+      'Quantity': item.quantity,
+      'Weight per Piece (g)': item.weightPerPiece,
+      'Total Weight (g)': item.totalWeight,
+      'Current Value': item.currentValue,
+      'Min Stock Level': item.minStockLevel
+    }));
+
+    if (format === 'csv') {
+      exportToCSV(data, 'inventory_report', Object.keys(data[0] || {}));
+    } else {
+      exportToExcel(data, 'inventory_report');
+    }
+    
+    toast({ title: "Success", description: `Inventory report exported as ${format.toUpperCase()}` });
+  };
+
+  const exportCustomerReport = (format: 'csv' | 'excel') => {
+    if (!customerReport) return;
+    
+    const data = customerReport.map(customer => ({
+      'Customer Name': customer.name,
+      'Phone': customer.phone,
+      'Email': customer.email || '',
+      'City': customer.city || '',
+      'Total Purchases': customer.totalPurchases,
+      'Total Credit': customer.totalCredit,
+      'Credit Limit': customer.creditLimit,
+      'Recent Transactions': customer.recentTransactions?.length || 0
+    }));
+
+    if (format === 'csv') {
+      exportToCSV(data, 'customer_report', Object.keys(data[0] || {}));
+    } else {
+      exportToExcel(data, 'customer_report');
+    }
+    
+    toast({ title: "Success", description: `Customer report exported as ${format.toUpperCase()}` });
+  };
+
   const totalSales = salesReport?.reduce((sum, item) => sum + parseFloat(item.totalSales), 0) || 0;
   const totalTransactions = salesReport?.reduce((sum, item) => sum + item.totalTransactions, 0) || 0;
   const avgDailySales = salesReport?.length ? totalSales / salesReport.length : 0;
@@ -105,20 +317,20 @@ export default function Reports() {
             <p className="text-gray-600 mt-1">Business insights and performance analysis</p>
           </div>
           <div className="flex items-center space-x-4">
-            <Button variant="outline">
-              <i className="fas fa-download mr-2"></i>Export PDF
-            </Button>
-            <Button variant="outline">
-              <i className="fas fa-file-excel mr-2"></i>Export Excel
-            </Button>
-            <Button className="bg-jewelry-gold text-white hover:bg-jewelry-bronze">
+            <Button 
+              variant="outline"
+              onClick={() => {
+                const content = document.getElementById('reports-content');
+                if (content) printReport('Business Report', content);
+              }}
+            >
               <i className="fas fa-print mr-2"></i>Print Report
             </Button>
           </div>
         </div>
       </header>
 
-      <div className="p-6">
+      <div className="p-6" id="reports-content">
         {/* Date Range Selector */}
         <Card className="mb-6">
           <CardContent className="p-4">
@@ -159,10 +371,6 @@ export default function Reports() {
                   className="w-40"
                 />
               </div>
-              
-              <Button variant="outline">
-                <i className="fas fa-refresh mr-2"></i>Refresh
-              </Button>
             </div>
           </CardContent>
         </Card>
@@ -171,8 +379,8 @@ export default function Reports() {
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="sales">Sales Report</TabsTrigger>
-            <TabsTrigger value="profit-loss">Profit & Loss</TabsTrigger>
             <TabsTrigger value="inventory">Inventory Report</TabsTrigger>
+            <TabsTrigger value="customers">Customer Report</TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
@@ -294,27 +502,29 @@ export default function Reports() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg">Performance Indicators</CardTitle>
+                  <CardTitle className="text-lg">Metal Sales Summary</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-gray-600">Revenue Growth:</span>
-                      <Badge className="bg-green-100 text-green-800">
-                        <i className="fas fa-arrow-up mr-1"></i>+12.5%
-                      </Badge>
+                      <span className="text-gray-600">Gold Sold:</span>
+                      <span className="font-medium text-yellow-600">
+                        {salesReport?.reduce((sum, item) => sum + parseFloat(item.goldWeightSold || "0"), 0).toFixed(2)}g
+                      </span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-gray-600">Customer Retention:</span>
-                      <Badge className="bg-blue-100 text-blue-800">85%</Badge>
+                      <span className="text-gray-600">Silver Sold:</span>
+                      <span className="font-medium text-gray-600">
+                        {salesReport?.reduce((sum, item) => sum + parseFloat(item.silverWeightSold || "0"), 0).toFixed(2)}g
+                      </span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-gray-600">Inventory Turnover:</span>
-                      <Badge className="bg-orange-100 text-orange-800">4.2x</Badge>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-600">Credit Recovery:</span>
-                      <Badge className="bg-yellow-100 text-yellow-800">78%</Badge>
+                      <span className="text-gray-600">Total Weight:</span>
+                      <span className="font-medium">
+                        {(salesReport?.reduce((sum, item) => 
+                          sum + parseFloat(item.goldWeightSold || "0") + parseFloat(item.silverWeightSold || "0"), 0
+                        ) || 0).toFixed(2)}g
+                      </span>
                     </div>
                   </div>
                 </CardContent>
@@ -322,31 +532,31 @@ export default function Reports() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg">Top Categories</CardTitle>
+                  <CardTitle className="text-lg">Quick Actions</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-600">Gold Jewelry:</span>
-                      <div className="text-right">
-                        <p className="font-medium">{formatCurrency(125000)}</p>
-                        <p className="text-xs text-gray-500">45% of sales</p>
-                      </div>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-600">Silver Items:</span>
-                      <div className="text-right">
-                        <p className="font-medium">{formatCurrency(68000)}</p>
-                        <p className="text-xs text-gray-500">24% of sales</p>
-                      </div>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-600">Diamond Jewelry:</span>
-                      <div className="text-right">
-                        <p className="font-medium">{formatCurrency(87000)}</p>
-                        <p className="text-xs text-gray-500">31% of sales</p>
-                      </div>
-                    </div>
+                  <div className="space-y-2">
+                    <Button 
+                      variant="outline" 
+                      className="w-full"
+                      onClick={() => exportSalesReport('excel')}
+                    >
+                      <i className="fas fa-file-excel mr-2"></i>Export Sales to Excel
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      className="w-full"
+                      onClick={() => exportInventoryReport('excel')}
+                    >
+                      <i className="fas fa-gem mr-2"></i>Export Inventory to Excel
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      className="w-full"
+                      onClick={() => exportCustomerReport('excel')}
+                    >
+                      <i className="fas fa-users mr-2"></i>Export Customers to Excel
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -357,175 +567,275 @@ export default function Reports() {
           <TabsContent value="sales" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Daily Sales Report</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Daily Sales Report</CardTitle>
+                  <div className="flex space-x-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => exportSalesReport('csv')}
+                    >
+                      <i className="fas fa-file-csv mr-2"></i>CSV
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => exportSalesReport('excel')}
+                    >
+                      <i className="fas fa-file-excel mr-2"></i>Excel
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => {
+                        const content = document.getElementById('sales-table');
+                        if (content) printReport('Sales Report', content);
+                      }}
+                    >
+                      <i className="fas fa-print mr-2"></i>Print
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
-                {salesLoading ? (
-                  <div className="space-y-4">
-                    {[1, 2, 3, 4, 5].map((i) => (
-                      <Skeleton key={i} className="h-16 w-full" />
-                    ))}
-                  </div>
-                ) : salesReport && salesReport.length > 0 ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="text-left text-sm font-medium text-gray-600 border-b">
-                          <th className="pb-3">Date</th>
-                          <th className="pb-3">Total Sales</th>
-                          <th className="pb-3">Transactions</th>
-                          <th className="pb-3">Avg Sale</th>
-                          <th className="pb-3">Growth</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {salesReport.map((item, index) => {
-                          const prevDaySales = index > 0 ? parseFloat(salesReport[index - 1].totalSales) : 0;
-                          const currentSales = parseFloat(item.totalSales);
-                          const growth = prevDaySales > 0 ? ((currentSales - prevDaySales) / prevDaySales) * 100 : 0;
-                          
-                          return (
+                <div id="sales-table">
+                  {salesLoading ? (
+                    <div className="space-y-4">
+                      {[1, 2, 3, 4, 5].map((i) => (
+                        <Skeleton key={i} className="h-16 w-full" />
+                      ))}
+                    </div>
+                  ) : salesReport && salesReport.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="text-left text-sm font-medium text-gray-600 border-b">
+                            <th className="pb-3">Date</th>
+                            <th className="pb-3">Total Sales</th>
+                            <th className="pb-3">Transactions</th>
+                            <th className="pb-3">Avg Sale</th>
+                            <th className="pb-3">Gold Sold (g)</th>
+                            <th className="pb-3">Silver Sold (g)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {salesReport.map((item, index) => (
                             <tr key={item.date} className="border-b hover:bg-gray-50">
                               <td className="py-3 font-medium">{formatDate(item.date)}</td>
                               <td className="py-3">{formatCurrency(item.totalSales)}</td>
                               <td className="py-3">{item.totalTransactions}</td>
                               <td className="py-3">{formatCurrency(item.avgSaleAmount)}</td>
-                              <td className="py-3">
-                                {index > 0 && (
-                                  <Badge className={growth >= 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
-                                    <i className={`fas ${growth >= 0 ? 'fa-arrow-up' : 'fa-arrow-down'} mr-1`}></i>
-                                    {Math.abs(growth).toFixed(1)}%
-                                  </Badge>
-                                )}
-                              </td>
+                              <td className="py-3 text-yellow-600 font-medium">{item.goldWeightSold}g</td>
+                              <td className="py-3 text-gray-600 font-medium">{item.silverWeightSold}g</td>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="text-center py-12">
-                    <i className="fas fa-chart-line text-gray-400 text-4xl mb-4"></i>
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">No sales data available</h3>
-                    <p className="text-gray-600">No sales found for the selected date range</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Profit & Loss Tab */}
-          <TabsContent value="profit-loss" className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Profit & Loss Statement</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {profitLossLoading ? (
-                    <div className="space-y-4">
-                      {[1, 2, 3, 4].map((i) => (
-                        <div key={i} className="flex justify-between">
-                          <Skeleton className="h-4 w-32" />
-                          <Skeleton className="h-4 w-24" />
-                        </div>
-                      ))}
-                    </div>
-                  ) : profitLossReport ? (
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-center py-2 border-b">
-                        <span className="font-medium text-gray-900">Revenue</span>
-                        <span className="font-bold text-green-600">
-                          {formatCurrency(profitLossReport.revenue)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center py-2 border-b">
-                        <span className="font-medium text-gray-900">Total Expenses</span>
-                        <span className="font-bold text-red-600">
-                          {formatCurrency(profitLossReport.expenses)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center py-2 border-b border-gray-300">
-                        <span className="font-bold text-gray-900 text-lg">Net Profit</span>
-                        <span className={`font-bold text-lg ${
-                          parseFloat(profitLossReport.profit) >= 0 ? 'text-green-600' : 'text-red-600'
-                        }`}>
-                          {formatCurrency(profitLossReport.profit)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center py-2">
-                        <span className="font-medium text-gray-900">Profit Margin</span>
-                        <span className="font-bold text-blue-600">
-                          {profitLossReport.profitMargin}%
-                        </span>
-                      </div>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   ) : (
-                    <div className="text-center py-8">
-                      <p className="text-gray-600">No profit/loss data available</p>
+                    <div className="text-center py-12">
+                      <i className="fas fa-chart-line text-gray-400 text-4xl mb-4"></i>
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">No sales data available</h3>
+                      <p className="text-gray-600">No sales found for the selected date range</p>
                     </div>
                   )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Financial Health Indicators</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="p-3 bg-green-50 rounded-lg">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-green-800">Cash Flow</span>
-                        <Badge className="bg-green-100 text-green-800">Positive</Badge>
-                      </div>
-                      <p className="text-xs text-green-700 mt-1">Strong cash position</p>
-                    </div>
-                    
-                    <div className="p-3 bg-yellow-50 rounded-lg">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-yellow-800">Credit Recovery</span>
-                        <Badge className="bg-yellow-100 text-yellow-800">78%</Badge>
-                      </div>
-                      <p className="text-xs text-yellow-700 mt-1">Room for improvement</p>
-                    </div>
-                    
-                    <div className="p-3 bg-blue-50 rounded-lg">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-blue-800">Expense Ratio</span>
-                        <Badge className="bg-blue-100 text-blue-800">32%</Badge>
-                      </div>
-                      <p className="text-xs text-blue-700 mt-1">Within healthy range</p>
-                    </div>
-                    
-                    <div className="p-3 bg-purple-50 rounded-lg">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-purple-800">ROI</span>
-                        <Badge className="bg-purple-100 text-purple-800">24%</Badge>
-                      </div>
-                      <p className="text-xs text-purple-700 mt-1">Excellent returns</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* Inventory Report Tab */}
           <TabsContent value="inventory" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Inventory Analysis</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Inventory Report</CardTitle>
+                  <div className="flex space-x-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => exportInventoryReport('csv')}
+                    >
+                      <i className="fas fa-file-csv mr-2"></i>CSV
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => exportInventoryReport('excel')}
+                    >
+                      <i className="fas fa-file-excel mr-2"></i>Excel
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => {
+                        const content = document.getElementById('inventory-table');
+                        if (content) printReport('Inventory Report', content);
+                      }}
+                    >
+                      <i className="fas fa-print mr-2"></i>Print
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
-                <div className="text-center py-12">
-                  <i className="fas fa-chart-pie text-gray-400 text-4xl mb-4"></i>
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">Inventory Report</h3>
-                  <p className="text-gray-600 mb-4">Detailed inventory analysis and stock movement reports</p>
-                  <Button className="bg-jewelry-gold hover:bg-jewelry-bronze">
-                    <i className="fas fa-chart-bar mr-2"></i>Generate Report
-                  </Button>
+                <div id="inventory-table">
+                  {inventoryLoading ? (
+                    <div className="space-y-4">
+                      {[1, 2, 3, 4, 5].map((i) => (
+                        <Skeleton key={i} className="h-16 w-full" />
+                      ))}
+                    </div>
+                  ) : inventoryReport && inventoryReport.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="text-left text-sm font-medium text-gray-600 border-b">
+                            <th className="pb-3">Item Name</th>
+                            <th className="pb-3">SKU</th>
+                            <th className="pb-3">Material</th>
+                            <th className="pb-3">Quantity</th>
+                            <th className="pb-3">Weight/Piece</th>
+                            <th className="pb-3">Total Weight</th>
+                            <th className="pb-3">Current Value</th>
+                            <th className="pb-3">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {inventoryReport.map((item) => (
+                            <tr key={item.id} className="border-b hover:bg-gray-50">
+                              <td className="py-3 font-medium">{item.name}</td>
+                              <td className="py-3">{item.sku}</td>
+                              <td className="py-3">
+                                <Badge className={
+                                  item.material === 'gold' ? 'bg-yellow-100 text-yellow-800' :
+                                  item.material === 'silver' ? 'bg-gray-100 text-gray-800' :
+                                  'bg-blue-100 text-blue-800'
+                                }>
+                                  {item.material}
+                                </Badge>
+                              </td>
+                              <td className="py-3">{item.quantity}</td>
+                              <td className="py-3">{item.weightPerPiece}g</td>
+                              <td className="py-3 font-medium">{item.totalWeight}g</td>
+                              <td className="py-3 font-medium">{formatCurrency(item.currentValue)}</td>
+                              <td className="py-3">
+                                <Badge className={
+                                  item.quantity <= item.minStockLevel ? 'bg-red-100 text-red-800' :
+                                  item.quantity <= item.minStockLevel * 2 ? 'bg-yellow-100 text-yellow-800' :
+                                  'bg-green-100 text-green-800'
+                                }>
+                                  {item.quantity <= item.minStockLevel ? 'Low Stock' : 'In Stock'}
+                                </Badge>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-center py-12">
+                      <i className="fas fa-gem text-gray-400 text-4xl mb-4"></i>
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">No inventory data available</h3>
+                      <p className="text-gray-600">Add items to your inventory to see reports</p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Customer Report Tab */}
+          <TabsContent value="customers" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Customer Report</CardTitle>
+                  <div className="flex space-x-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => exportCustomerReport('csv')}
+                    >
+                      <i className="fas fa-file-csv mr-2"></i>CSV
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => exportCustomerReport('excel')}
+                    >
+                      <i className="fas fa-file-excel mr-2"></i>Excel
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => {
+                        const content = document.getElementById('customer-table');
+                        if (content) printReport('Customer Report', content);
+                      }}
+                    >
+                      <i className="fas fa-print mr-2"></i>Print
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div id="customer-table">
+                  {customerLoading ? (
+                    <div className="space-y-4">
+                      {[1, 2, 3, 4, 5].map((i) => (
+                        <Skeleton key={i} className="h-16 w-full" />
+                      ))}
+                    </div>
+                  ) : customerReport && customerReport.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="text-left text-sm font-medium text-gray-600 border-b">
+                            <th className="pb-3">Customer Name</th>
+                            <th className="pb-3">Phone</th>
+                            <th className="pb-3">Total Purchases</th>
+                            <th className="pb-3">Outstanding Credit</th>
+                            <th className="pb-3">Credit Limit</th>
+                            <th className="pb-3">Recent Transactions</th>
+                            <th className="pb-3">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {customerReport.map((customer) => (
+                            <tr key={customer.id} className="border-b hover:bg-gray-50">
+                              <td className="py-3 font-medium">{customer.name}</td>
+                              <td className="py-3">{customer.phone}</td>
+                              <td className="py-3">{formatCurrency(customer.totalPurchases)}</td>
+                              <td className="py-3">
+                                <span className={parseFloat(customer.totalCredit) > 0 ? 'text-red-600 font-medium' : 'text-green-600'}>
+                                  {formatCurrency(customer.totalCredit)}
+                                </span>
+                              </td>
+                              <td className="py-3">{formatCurrency(customer.creditLimit)}</td>
+                              <td className="py-3">{customer.recentTransactions?.length || 0}</td>
+                              <td className="py-3">
+                                <Badge className={
+                                  parseFloat(customer.totalCredit) > parseFloat(customer.creditLimit) * 0.8 ? 'bg-red-100 text-red-800' :
+                                  parseFloat(customer.totalCredit) > 0 ? 'bg-yellow-100 text-yellow-800' :
+                                  'bg-green-100 text-green-800'
+                                }>
+                                  {parseFloat(customer.totalCredit) > parseFloat(customer.creditLimit) * 0.8 ? 'High Credit' :
+                                   parseFloat(customer.totalCredit) > 0 ? 'Has Credit' : 'Good Standing'}
+                                </Badge>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-center py-12">
+                      <i className="fas fa-users text-gray-400 text-4xl mb-4"></i>
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">No customer data available</h3>
+                      <p className="text-gray-600">Add customers to see reports</p>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
