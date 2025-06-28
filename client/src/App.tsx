@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { AuthForm } from '@/components/AuthForm';
 import { SubscriptionPage } from '@/pages/SubscriptionPage';
+import { SettingsPage } from '@/pages/SettingsPage';
 import { AdminDashboard } from '@/pages/AdminDashboard';
 import { FeatureLimitModal } from '@/components/FeatureLimitModal';
 import { AnalyticsTracker } from '@/components/AnalyticsTracker';
@@ -46,7 +47,7 @@ function Dashboard() {
     setLocation('/subscription');
   };
 
-  // Check if user is admin (you can implement proper admin role checking)
+  // Check if user is admin
   const isAdmin = user?.email === 'admin@thangamalar.com';
 
   if (!user || !userSubscription) {
@@ -300,7 +301,10 @@ function Dashboard() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Button className="w-full bg-jewelry-gold hover:bg-jewelry-bronze text-white">
+                <Button 
+                  className="w-full bg-jewelry-gold hover:bg-jewelry-bronze text-white"
+                  onClick={() => setLocation('/settings')}
+                >
                   Settings
                 </Button>
               </CardContent>
@@ -344,6 +348,7 @@ function App() {
   return (
     <Switch>
       <Route path="/subscription" component={SubscriptionPage} />
+      <Route path="/settings" component={SettingsPage} />
       <Route path="/admin" component={AdminDashboard} />
       <Route component={Dashboard} />
     </Switch>

@@ -3,15 +3,11 @@ import { User, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEma
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { UserSubscription, SubscriptionPlan } from '@/types/subscription';
-import { useAnalytics } from './useAnalytics';
-import { useEmailNotifications } from './useEmailNotifications';
 
 export const useAuth = () => {
   const [user, setUser] = useState<User | null>(null);
   const [userSubscription, setUserSubscription] = useState<UserSubscription | null>(null);
   const [loading, setLoading] = useState(true);
-  const { trackEvent } = useAnalytics();
-  const { scheduleNotification } = useEmailNotifications();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -71,9 +67,6 @@ export const useAuth = () => {
             events: {},
             featureUsage: {},
           });
-
-          // Track signup event
-          trackEvent(user.uid, 'signup');
           
           setUserSubscription(defaultSubscription);
         }
@@ -92,9 +85,7 @@ export const useAuth = () => {
   };
 
   const signUp = async (email: string, password: string) => {
-    const result = await createUserWithEmailAndPassword(auth, email, password);
-    trackEvent(result.user.uid, 'trial_start');
-    return result;
+    return createUserWithEmailAndPassword(auth, email, password);
   };
 
   const logout = async () => {
@@ -139,15 +130,6 @@ export const useAuth = () => {
     };
 
     await setDoc(doc(db, 'users', user.uid), updatedSubscription);
-    
-    // Track upgrade event
-    trackEvent(user.uid, 'upgrade_completed', { fromPlan: userSubscription?.plan, toPlan: newPlan });
-    
-    // Send upgrade success notification
-    if (newPlan !== 'free') {
-      scheduleNotification(user.uid, user.email!, 'upgrade_success', new Date());
-    }
-    
     setUserSubscription(updatedSubscription as UserSubscription);
   };
 
