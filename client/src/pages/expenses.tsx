@@ -83,7 +83,7 @@ export default function Expenses() {
     mutationFn: async (data: ExpenseForm) => {
       const payload = {
         ...data,
-        expenseDate: new Date(data.expenseDate).toISOString(),
+        expenseDate: new Date(data.expenseDate),
       };
       await createExpense(payload);
     },

@@ -14,17 +14,16 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { getInventoryItems, createInventoryItem, updateInventoryItem, deleteInventoryItem } from "@/lib/firestore";
+import { getInventoryItems, createInventoryItem, updateInventoryItem, deleteInventoryItem, getDailyPrices } from "@/lib/firestore";
 
 interface InventoryItem {
   id: string;
   name: string;
   category: string;
   material: string;
-  weightGrams: string;
-  purchaseCost: string;
-  sellingPrice: string;
-  currentStock: number;
+  quantity: number;
+  weightPerPiece: string;
+  totalWeight: string;
   minStockLevel: number;
   sku: string;
   barcode?: string;
@@ -36,10 +35,8 @@ const inventoryItemSchema = z.object({
   name: z.string().min(1, "Name is required"),
   category: z.enum(["ring", "necklace", "bracelet", "earrings", "chain", "pendant", "bangles", "anklet", "other"]),
   material: z.enum(["gold", "silver", "diamond", "platinum", "other"]),
-  weightGrams: z.string().min(1, "Weight is required"),
-  purchaseCost: z.string().min(1, "Purchase cost is required"),
-  sellingPrice: z.string().min(1, "Selling price is required"),
-  currentStock: z.number().min(0, "Stock cannot be negative"),
+  quantity: z.number().min(0, "Quantity cannot be negative"),
+  weightPerPiece: z.string().min(1, "Weight per piece is required"),
   minStockLevel: z.number().min(1, "Minimum stock level must be at least 1"),
   sku: z.string().min(1, "SKU is required"),
   barcode: z.string().optional(),
@@ -59,16 +56,19 @@ export default function Inventory() {
     queryFn: getInventoryItems,
   });
 
+  const { data: dailyPrices } = useQuery({
+    queryKey: ['daily-prices'],
+    queryFn: () => getDailyPrices(),
+  });
+
   const form = useForm<InventoryItemForm>({
     resolver: zodResolver(inventoryItemSchema),
     defaultValues: {
       name: "",
       category: "ring",
       material: "gold",
-      weightGrams: "",
-      purchaseCost: "",
-      sellingPrice: "",
-      currentStock: 0,
+      quantity: 0,
+      weightPerPiece: "",
       minStockLevel: 5,
       sku: "",
       barcode: "",
@@ -152,10 +152,8 @@ export default function Inventory() {
       name: item.name,
       category: item.category as any,
       material: item.material as any,
-      weightGrams: item.weightGrams,
-      purchaseCost: item.purchaseCost,
-      sellingPrice: item.sellingPrice,
-      currentStock: item.currentStock,
+      quantity: item.quantity,
+      weightPerPiece: item.weightPerPiece,
       minStockLevel: item.minStockLevel,
       sku: item.sku,
       barcode: item.barcode || "",
@@ -170,13 +168,22 @@ export default function Inventory() {
     }
   };
 
-  const formatCurrency = (amount: string) => {
+  const calculateCurrentValue = (item: InventoryItem) => {
+    const totalWeight = parseFloat(item.totalWeight);
+    const pricePerGram = item.material === 'gold' ? 
+      parseFloat(dailyPrices?.goldPricePerGram || "9200") :
+      parseFloat(dailyPrices?.silverPricePerGram || "110");
+    
+    return totalWeight * pricePerGram;
+  };
+
+  const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
       currency: 'INR',
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
-    }).format(parseFloat(amount));
+    }).format(amount);
   };
 
   const getMaterialColor = (material: string) => {
@@ -200,6 +207,14 @@ export default function Inventory() {
     return 'bg-green-100 text-green-800';
   };
 
+  const totalInventoryValue = filteredItems.reduce((sum, item) => 
+    sum + calculateCurrentValue(item), 0
+  );
+
+  const totalWeight = filteredItems.reduce((sum, item) => 
+    sum + parseFloat(item.totalWeight), 0
+  );
+
   return (
     <>
       {/* Header */}
@@ -207,7 +222,7 @@ export default function Inventory() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-jewelry-navy">Inventory Management</h1>
-            <p className="text-gray-600 mt-1">Manage your jewelry items and stock levels</p>
+            <p className="text-gray-600 mt-1">Weight-based jewelry inventory tracking</p>
           </div>
           <Dialog open={showAddDialog} onOpenChange={(open) => {
             setShowAddDialog(open);
@@ -316,52 +331,10 @@ export default function Inventory() {
                   <div className="grid grid-cols-3 gap-4">
                     <FormField
                       control={form.control}
-                      name="weightGrams"
+                      name="quantity"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Weight (grams)</FormLabel>
-                          <FormControl>
-                            <Input placeholder="22.5" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="purchaseCost"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Purchase Cost</FormLabel>
-                          <FormControl>
-                            <Input placeholder="10000" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="sellingPrice"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Selling Price</FormLabel>
-                          <FormControl>
-                            <Input placeholder="12000" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="currentStock"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Current Stock</FormLabel>
+                          <FormLabel>Quantity (pieces)</FormLabel>
                           <FormControl>
                             <Input 
                               type="number" 
@@ -369,6 +342,19 @@ export default function Inventory() {
                               {...field}
                               onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
                             />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="weightPerPiece"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Weight per piece (grams)</FormLabel>
+                          <FormControl>
+                            <Input placeholder="4.5" {...field} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -392,6 +378,9 @@ export default function Inventory() {
                         </FormItem>
                       )}
                     />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
                     <FormField
                       control={form.control}
                       name="barcode"
@@ -405,6 +394,15 @@ export default function Inventory() {
                         </FormItem>
                       )}
                     />
+                    <div className="flex items-end">
+                      <div className="text-sm text-gray-600 bg-blue-50 p-3 rounded-lg w-full">
+                        <strong>Total Weight:</strong> {
+                          form.watch('quantity') && form.watch('weightPerPiece') ? 
+                          (form.watch('quantity') * parseFloat(form.watch('weightPerPiece') || "0")).toFixed(2) + " grams" :
+                          "0 grams"
+                        }
+                      </div>
+                    </div>
                   </div>
 
                   <FormField
@@ -448,6 +446,96 @@ export default function Inventory() {
       </header>
 
       <div className="p-6">
+        {/* Inventory Summary Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Total Items</p>
+                  <p className="text-2xl font-bold text-jewelry-navy">{filteredItems.length}</p>
+                </div>
+                <div className="bg-blue-100 p-3 rounded-lg">
+                  <i className="fas fa-gem text-blue-600 text-xl"></i>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Total Weight</p>
+                  <p className="text-2xl font-bold text-jewelry-gold">{totalWeight.toFixed(2)}g</p>
+                </div>
+                <div className="bg-jewelry-gold bg-opacity-10 p-3 rounded-lg">
+                  <i className="fas fa-weight text-jewelry-gold text-xl"></i>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Current Value</p>
+                  <p className="text-2xl font-bold text-green-600">
+                    {formatCurrency(totalInventoryValue)}
+                  </p>
+                </div>
+                <div className="bg-green-100 p-3 rounded-lg">
+                  <i className="fas fa-rupee-sign text-green-600 text-xl"></i>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Low Stock Items</p>
+                  <p className="text-2xl font-bold text-red-600">
+                    {filteredItems.filter(item => item.quantity <= item.minStockLevel).length}
+                  </p>
+                </div>
+                <div className="bg-red-100 p-3 rounded-lg">
+                  <i className="fas fa-exclamation-triangle text-red-600 text-xl"></i>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Current Prices Display */}
+        {dailyPrices && (
+          <Card className="mb-6">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-medium text-jewelry-navy">Current Metal Prices</h3>
+                <div className="flex items-center space-x-6">
+                  <div className="text-center">
+                    <p className="text-sm text-gray-600">Gold</p>
+                    <p className="font-bold text-yellow-600">₹{dailyPrices.goldPricePerGram}/g</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm text-gray-600">Silver</p>
+                    <p className="font-bold text-gray-600">₹{dailyPrices.silverPricePerGram}/g</p>
+                  </div>
+                  {dailyPrices.platinumPricePerGram && (
+                    <div className="text-center">
+                      <p className="text-sm text-gray-600">Platinum</p>
+                      <p className="font-bold text-purple-600">₹{dailyPrices.platinumPricePerGram}/g</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Search and Filters */}
         <Card className="mb-6">
           <CardContent className="p-4">
@@ -473,11 +561,7 @@ export default function Inventory() {
             <CardTitle className="flex items-center justify-between">
               <span>Inventory Items ({filteredItems.length})</span>
               <div className="text-sm text-gray-600">
-                Total Value: {formatCurrency(
-                  filteredItems.reduce((sum, item) => 
-                    sum + (parseFloat(item.sellingPrice) * item.currentStock), 0
-                  ).toString()
-                )}
+                Total Value: {formatCurrency(totalInventoryValue)}
               </div>
             </CardTitle>
           </CardHeader>
@@ -502,8 +586,8 @@ export default function Inventory() {
                     <tr className="text-left text-sm font-medium text-gray-600 border-b">
                       <th className="pb-3">Item Details</th>
                       <th className="pb-3">Material & Weight</th>
-                      <th className="pb-3">Pricing</th>
-                      <th className="pb-3">Stock Status</th>
+                      <th className="pb-3">Stock Info</th>
+                      <th className="pb-3">Current Value</th>
                       <th className="pb-3">Actions</th>
                     </tr>
                   </thead>
@@ -522,31 +606,41 @@ export default function Inventory() {
                           </div>
                         </td>
                         <td className="py-4">
-                          <div className="flex items-center space-x-2">
+                          <div className="space-y-1">
                             <Badge className={getMaterialColor(item.material)}>
                               {item.material}
                             </Badge>
-                            <span className="text-sm text-gray-600">{item.weightGrams}g</span>
+                            <p className="text-sm text-gray-600">
+                              {item.weightPerPiece}g per piece
+                            </p>
+                            <p className="text-sm font-medium text-jewelry-gold">
+                              Total: {item.totalWeight}g
+                            </p>
+                          </div>
+                        </td>
+                        <td className="py-4">
+                          <div className="space-y-1">
+                            <Badge className={getStockStatusColor(item.quantity, item.minStockLevel)}>
+                              {item.quantity} pieces
+                            </Badge>
+                            <p className="text-xs text-gray-500">
+                              Min: {item.minStockLevel}
+                            </p>
+                            {item.quantity <= item.minStockLevel && (
+                              <p className="text-xs text-red-600 font-medium">
+                                <i className="fas fa-exclamation-triangle mr-1"></i>Low Stock
+                              </p>
+                            )}
                           </div>
                         </td>
                         <td className="py-4">
                           <div>
                             <p className="font-medium text-gray-900">
-                              {formatCurrency(item.sellingPrice)}
+                              {formatCurrency(calculateCurrentValue(item))}
                             </p>
-                            <p className="text-sm text-gray-500">
-                              Cost: {formatCurrency(item.purchaseCost)}
+                            <p className="text-xs text-gray-500">
+                              @ ₹{item.material === 'gold' ? dailyPrices?.goldPricePerGram : dailyPrices?.silverPricePerGram}/g
                             </p>
-                          </div>
-                        </td>
-                        <td className="py-4">
-                          <div className="flex items-center space-x-2">
-                            <Badge className={getStockStatusColor(item.currentStock, item.minStockLevel)}>
-                              {item.currentStock} in stock
-                            </Badge>
-                            {item.currentStock <= item.minStockLevel && (
-                              <i className="fas fa-exclamation-triangle text-orange-600" title="Low stock"></i>
-                            )}
                           </div>
                         </td>
                         <td className="py-4">

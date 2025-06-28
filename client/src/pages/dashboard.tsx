@@ -3,20 +3,32 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import QuickSaleModal from "@/components/quick-sale-modal";
 import { useState } from "react";
 import { 
   getDashboardMetrics, 
   getSales, 
   getLowStockItems, 
-  getOverdueCredits 
+  getOverdueCredits,
+  getDailyPrices,
+  setDailyPrices
 } from "@/lib/firestore";
+import { useMutation } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface DashboardMetrics {
   todaySales: string;
   inventoryValue: string;
   pendingCredits: string;
   lowStockCount: number;
+  currentPrices: {
+    gold: string;
+    silver: string;
+    platinum: string;
+  };
   salesByType: {
     inventory: { amount: string; count: number };
     commission: { amount: string; count: number };
@@ -38,7 +50,7 @@ interface Sale {
     itemName: string;
     quantity: number;
     weightGrams?: string;
-    material?: string;
+    metalType?: string;
   }>;
 }
 
@@ -46,7 +58,7 @@ interface LowStockItem {
   id: string;
   name: string;
   sku: string;
-  currentStock: number;
+  quantity: number;
   minStockLevel: number;
 }
 
@@ -61,6 +73,11 @@ interface OverdueCredit {
 
 export default function Dashboard() {
   const [showQuickSale, setShowQuickSale] = useState(false);
+  const [showPriceUpdate, setShowPriceUpdate] = useState(false);
+  const [goldPrice, setGoldPrice] = useState("");
+  const [silverPrice, setSilverPrice] = useState("");
+  const [platinumPrice, setPlatinumPrice] = useState("");
+  const { toast } = useToast();
 
   const { data: metrics, isLoading: metricsLoading } = useQuery<DashboardMetrics>({
     queryKey: ['dashboard-metrics'],
@@ -81,6 +98,54 @@ export default function Dashboard() {
     queryKey: ['overdue-credits'],
     queryFn: getOverdueCredits,
   });
+
+  const { data: dailyPrices } = useQuery({
+    queryKey: ['daily-prices'],
+    queryFn: getDailyPrices,
+  });
+
+  const updatePricesMutation = useMutation({
+    mutationFn: async (prices: { goldPricePerGram: string; silverPricePerGram: string; platinumPricePerGram: string }) => {
+      await setDailyPrices(prices);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['daily-prices'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-metrics'] });
+      toast({ title: "Success", description: "Prices updated successfully" });
+      setShowPriceUpdate(false);
+    },
+    onError: (error) => {
+      toast({ 
+        title: "Error", 
+        description: error.message,
+        variant: "destructive" 
+      });
+    },
+  });
+
+  const handlePriceUpdate = () => {
+    if (!goldPrice || !silverPrice) {
+      toast({ 
+        title: "Error", 
+        description: "Please enter both gold and silver prices",
+        variant: "destructive" 
+      });
+      return;
+    }
+
+    updatePricesMutation.mutate({
+      goldPricePerGram: goldPrice,
+      silverPricePerGram: silverPrice,
+      platinumPricePerGram: platinumPrice || "3500",
+    });
+  };
+
+  const openPriceUpdate = () => {
+    setGoldPrice(dailyPrices?.goldPricePerGram || "9200");
+    setSilverPrice(dailyPrices?.silverPricePerGram || "110");
+    setPlatinumPrice(dailyPrices?.platinumPricePerGram || "3500");
+    setShowPriceUpdate(true);
+  };
 
   const formatCurrency = (amount: string | number) => {
     const num = typeof amount === 'string' ? parseFloat(amount) : amount;
@@ -153,6 +218,97 @@ export default function Dashboard() {
       </header>
 
       <div className="p-6">
+        {/* Current Prices Section */}
+        <Card className="mb-6 bg-gradient-to-r from-yellow-50 to-gray-50">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-jewelry-navy mb-2">Today's Metal Prices</h3>
+                <div className="grid grid-cols-3 gap-6">
+                  <div className="text-center">
+                    <p className="text-sm text-gray-600">Gold</p>
+                    <p className="text-2xl font-bold text-yellow-600">
+                      ₹{metrics?.currentPrices?.gold || dailyPrices?.goldPricePerGram || "9200"}/g
+                    </p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm text-gray-600">Silver</p>
+                    <p className="text-2xl font-bold text-gray-600">
+                      ₹{metrics?.currentPrices?.silver || dailyPrices?.silverPricePerGram || "110"}/g
+                    </p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm text-gray-600">Platinum</p>
+                    <p className="text-2xl font-bold text-purple-600">
+                      ₹{metrics?.currentPrices?.platinum || dailyPrices?.platinumPricePerGram || "3500"}/g
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <Button
+                onClick={openPriceUpdate}
+                variant="outline"
+                className="border-jewelry-gold text-jewelry-gold hover:bg-jewelry-gold hover:text-white"
+              >
+                <i className="fas fa-edit mr-2"></i>Update Prices
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Price Update Modal */}
+        {showPriceUpdate && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <h3 className="text-lg font-semibold text-jewelry-navy mb-4">Update Today's Prices</h3>
+              <div className="space-y-4">
+                <div>
+                  <Label>Gold Price per Gram (₹)</Label>
+                  <Input
+                    type="number"
+                    value={goldPrice}
+                    onChange={(e) => setGoldPrice(e.target.value)}
+                    placeholder="9200"
+                  />
+                </div>
+                <div>
+                  <Label>Silver Price per Gram (₹)</Label>
+                  <Input
+                    type="number"
+                    value={silverPrice}
+                    onChange={(e) => setSilverPrice(e.target.value)}
+                    placeholder="110"
+                  />
+                </div>
+                <div>
+                  <Label>Platinum Price per Gram (₹)</Label>
+                  <Input
+                    type="number"
+                    value={platinumPrice}
+                    onChange={(e) => setPlatinumPrice(e.target.value)}
+                    placeholder="3500"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end space-x-3 mt-6">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowPriceUpdate(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handlePriceUpdate}
+                  disabled={updatePricesMutation.isPending}
+                  className="bg-jewelry-gold hover:bg-jewelry-bronze"
+                >
+                  {updatePricesMutation.isPending ? "Updating..." : "Update Prices"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Key Metrics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <Card>
@@ -190,7 +346,7 @@ export default function Dashboard() {
                       {formatCurrency(metrics?.inventoryValue || 0)}
                     </p>
                   )}
-                  <p className="text-sm text-gray-500 mt-1">Total stock value</p>
+                  <p className="text-sm text-gray-500 mt-1">At current prices</p>
                 </div>
                 <div className="bg-jewelry-gold bg-opacity-10 p-3 rounded-lg">
                   <i className="fas fa-gem text-jewelry-gold text-xl"></i>
@@ -299,7 +455,7 @@ export default function Dashboard() {
                               </p>
                               {sale.saleItems[0]?.weightGrams && (
                                 <p className="text-gray-500">
-                                  {sale.saleItems[0].weightGrams}g {sale.saleItems[0].material}
+                                  {sale.saleItems[0].weightGrams}g {sale.saleItems[0].metalType}
                                 </p>
                               )}
                             </div>
@@ -359,10 +515,14 @@ export default function Dashboard() {
                     </div>
                     <i className="fas fa-chevron-right text-gray-400"></i>
                   </Button>
-                  <Button variant="ghost" className="w-full justify-between p-3 hover:bg-gray-100">
+                  <Button 
+                    variant="ghost" 
+                    className="w-full justify-between p-3 hover:bg-gray-100"
+                    onClick={openPriceUpdate}
+                  >
                     <div className="flex items-center">
-                      <i className="fas fa-chart-line text-jewelry-gold mr-3"></i>
-                      <span className="font-medium text-jewelry-navy">View Reports</span>
+                      <i className="fas fa-coins text-jewelry-gold mr-3"></i>
+                      <span className="font-medium text-jewelry-navy">Update Prices</span>
                     </div>
                     <i className="fas fa-chevron-right text-gray-400"></i>
                   </Button>
@@ -396,7 +556,7 @@ export default function Dashboard() {
                           <p className="text-sm text-gray-600">SKU: {item.sku}</p>
                         </div>
                         <div className="text-right">
-                          <p className="font-medium text-orange-600">{item.currentStock} left</p>
+                          <p className="font-medium text-orange-600">{item.quantity} left</p>
                           <p className="text-xs text-gray-500">Min: {item.minStockLevel}</p>
                         </div>
                       </div>
