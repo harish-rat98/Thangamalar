@@ -15,7 +15,7 @@ service cloud.firestore {
     
     // Analytics events - users can write their own, admins can read all
     match /analytics_events/{eventId} {
-      allow create: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
       allow read: if request.auth != null && 
         (request.auth.uid == resource.data.userId || 
          request.auth.token.email == 'admin@thangamalar.com');
@@ -23,7 +23,7 @@ service cloud.firestore {
     
     // Feature usage tracking
     match /feature_usage/{usageId} {
-      allow create: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
       allow read: if request.auth != null && 
         (request.auth.uid == resource.data.userId || 
          request.auth.token.email == 'admin@thangamalar.com');
@@ -36,24 +36,47 @@ service cloud.firestore {
     }
     
     // Business data - require authentication and user ownership
+    // Fixed rules to allow creation without prior read access
     match /inventoryItems/{itemId} {
-      allow read, write: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      allow read, update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
     }
     
     match /customers/{customerId} {
-      allow read, write: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      allow read, update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
     }
     
     match /sales/{saleId} {
-      allow read, write: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      allow read, update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+    }
+    
+    // Sale items sub-collection
+    match /sales/{saleId}/items/{itemId} {
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      allow read, update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+    }
+    
+    // Payment records for partial payments
+    match /sales/{saleId}/payments/{paymentId} {
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      allow read, update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
     }
     
     match /creditTransactions/{transactionId} {
-      allow read, write: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      allow read, update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
     }
     
     match /expenses/{expenseId} {
-      allow read, write: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      allow read, update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+    }
+    
+    // Allow admins to read all business data for analytics
+    match /{document=**} {
+      allow read: if request.auth != null && request.auth.token.email == 'admin@thangamalar.com';
     }
   }
 }
