@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useAuth } from './useAuth';
+import { useAnalytics } from './useAnalytics';
 
 export const useFeatureLimits = () => {
   const { userSubscription } = useAuth();
+  const { trackEvent } = useAnalytics();
   const [limitModal, setLimitModal] = useState<{
     isOpen: boolean;
     feature: string;
@@ -33,6 +35,9 @@ export const useFeatureLimits = () => {
     const limit = limits[feature];
     
     if (limit !== -1 && currentCount >= limit) {
+      // Track feature limit hit
+      trackEvent('feature_limit_hit', { feature, currentCount, limit });
+      
       setLimitModal({
         isOpen: true,
         feature: feature === 'inventory' ? 'inventory items' : feature,
@@ -49,10 +54,15 @@ export const useFeatureLimits = () => {
     setLimitModal(prev => ({ ...prev, isOpen: false }));
   };
 
+  const showUpgradePrompt = () => {
+    trackEvent('upgrade_prompt_shown', { feature: limitModal.feature });
+  };
+
   return {
     checkLimit,
     limitModal,
     closeLimitModal,
+    showUpgradePrompt,
     userSubscription,
   };
 };

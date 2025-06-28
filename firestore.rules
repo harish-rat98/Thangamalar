@@ -6,6 +6,35 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
     
+    // User analytics - users can read their own, admins can read all
+    match /user_analytics/{userId} {
+      allow read, write: if request.auth != null && 
+        (request.auth.uid == userId || 
+         request.auth.token.email == 'admin@thangamalar.com');
+    }
+    
+    // Analytics events - users can write their own, admins can read all
+    match /analytics_events/{eventId} {
+      allow create: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow read: if request.auth != null && 
+        (request.auth.uid == resource.data.userId || 
+         request.auth.token.email == 'admin@thangamalar.com');
+    }
+    
+    // Feature usage tracking
+    match /feature_usage/{usageId} {
+      allow create: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow read: if request.auth != null && 
+        (request.auth.uid == resource.data.userId || 
+         request.auth.token.email == 'admin@thangamalar.com');
+    }
+    
+    // Email notifications - admins only
+    match /email_notifications/{notificationId} {
+      allow read, write: if request.auth != null && 
+        request.auth.token.email == 'admin@thangamalar.com';
+    }
+    
     // Business data - require authentication and user ownership
     match /inventoryItems/{itemId} {
       allow read, write: if request.auth != null && resource.data.userId == request.auth.uid;
