@@ -134,7 +134,7 @@ interface ExpenseData {
   category: string;
   description: string;
   amount: string;
-  material?: string;
+  paymentMethod: string;
   receiptNumber?: string;
   vendorName?: string;
   expenseDate: Date;
@@ -331,6 +331,41 @@ export const updateCustomer = async (id: string, customer: Partial<CustomerData>
   
   const updatedDoc = await getDoc(docRef);
   return { id: updatedDoc.id, ...convertTimestamps(updatedDoc.data()) };
+};
+
+export const deleteCustomer = async (id: string) => {
+  return await runTransaction(db, async (transaction) => {
+    // Delete customer
+    const customerRef = doc(db, 'customers', id);
+    transaction.delete(customerRef);
+    
+    // Delete all credit transactions for this customer
+    const creditTransactionsQuery = query(
+      collection(db, 'creditTransactions'),
+      where('customerId', '==', id)
+    );
+    const creditTransactionsSnapshot = await getDocs(creditTransactionsQuery);
+    
+    creditTransactionsSnapshot.docs.forEach(creditDoc => {
+      transaction.delete(creditDoc.ref);
+    });
+    
+    // Note: We don't delete sales records as they are important for business records
+    // Instead, we could mark them as having a deleted customer
+    const salesQuery = query(
+      collection(db, 'sales'),
+      where('customerId', '==', id)
+    );
+    const salesSnapshot = await getDocs(salesQuery);
+    
+    salesSnapshot.docs.forEach(saleDoc => {
+      transaction.update(saleDoc.ref, {
+        customerId: null,
+        customerDeleted: true,
+        deletedAt: new Date()
+      });
+    });
+  });
 };
 
 export const importCustomers = async (customers: Partial<CustomerData>[]): Promise<number> => {
@@ -723,7 +758,7 @@ export const getOverdueCredits = async () => {
   return credits;
 };
 
-// EXPENSE OPERATIONS - Enhanced
+// EXPENSE OPERATIONS - Enhanced and Fixed
 export const getExpenses = async () => {
   const q = query(collection(db, 'expenses'), orderBy('expenseDate', 'desc'));
   const snapshot = await getDocs(q);
@@ -739,6 +774,21 @@ export const createExpense = async (expense: Partial<ExpenseData>) => {
   
   const doc = await getDoc(docRef);
   return { id: doc.id, ...convertTimestamps(doc.data()) };
+};
+
+export const updateExpense = async (id: string, expense: Partial<ExpenseData>) => {
+  const docRef = doc(db, 'expenses', id);
+  await updateDoc(docRef, {
+    ...expense,
+    updatedAt: new Date(),
+  });
+  
+  const updatedDoc = await getDoc(docRef);
+  return { id: updatedDoc.id, ...convertTimestamps(updatedDoc.data()) };
+};
+
+export const deleteExpense = async (id: string) => {
+  await deleteDoc(doc(db, 'expenses', id));
 };
 
 // SETTINGS OPERATIONS - New

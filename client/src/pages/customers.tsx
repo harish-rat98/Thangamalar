@@ -6,13 +6,14 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { getCustomers, createCustomer, updateCustomer } from "@/lib/firestore";
+import { getCustomers, createCustomer, updateCustomer, deleteCustomer } from "@/lib/firestore";
 import { queryClient } from "@/lib/queryClient";
 import ContactImportModal from "@/components/contact-import-modal";
 
@@ -46,6 +47,7 @@ export default function Customers() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [deletingCustomer, setDeletingCustomer] = useState<Customer | null>(null);
   const { toast } = useToast();
 
   const { data: customers, isLoading } = useQuery<Customer[]>({
@@ -69,9 +71,9 @@ export default function Customers() {
     mutationFn: createCustomer,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-metrics'] });
       toast({ title: "Success", description: "Customer added successfully" });
-      setShowAddDialog(false);
-      form.reset();
+      handleCloseDialog();
     },
     onError: (error) => {
       toast({ 
@@ -87,10 +89,28 @@ export default function Customers() {
       updateCustomer(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-metrics'] });
       toast({ title: "Success", description: "Customer updated successfully" });
-      setEditingCustomer(null);
-      setShowAddDialog(false);
-      form.reset();
+      handleCloseDialog();
+    },
+    onError: (error) => {
+      toast({ 
+        title: "Error", 
+        description: error.message,
+        variant: "destructive" 
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await deleteCustomer(id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-metrics'] });
+      toast({ title: "Success", description: "Customer deleted successfully" });
+      setDeletingCustomer(null);
     },
     onError: (error) => {
       toast({ 
@@ -129,7 +149,17 @@ export default function Customers() {
     setShowAddDialog(true);
   };
 
-  const handleClose = () => {
+  const handleDelete = (customer: Customer) => {
+    setDeletingCustomer(customer);
+  };
+
+  const confirmDelete = () => {
+    if (deletingCustomer) {
+      deleteMutation.mutate(deletingCustomer.id);
+    }
+  };
+
+  const handleCloseDialog = () => {
     setShowAddDialog(false);
     setEditingCustomer(null);
     form.reset();
@@ -171,7 +201,10 @@ export default function Customers() {
             >
               <i className="fas fa-upload mr-2"></i>Import Customers
             </Button>
-            <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+            <Dialog open={showAddDialog} onOpenChange={(open) => {
+              if (!open) handleCloseDialog();
+              else setShowAddDialog(true);
+            }}>
               <DialogTrigger asChild>
                 <Button className="bg-jewelry-gold text-white hover:bg-jewelry-bronze">
                   <i className="fas fa-plus mr-2"></i>Add New Customer
@@ -282,7 +315,7 @@ export default function Customers() {
                       <Button 
                         type="button" 
                         variant="outline" 
-                        onClick={handleClose}
+                        onClick={handleCloseDialog}
                       >
                         Cancel
                       </Button>
@@ -492,22 +525,24 @@ export default function Customers() {
                               variant="ghost"
                               size="sm"
                               onClick={() => handleEdit(customer)}
+                              className="text-blue-600 hover:text-blue-700"
                             >
                               <i className="fas fa-edit"></i>
                             </Button>
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="text-blue-600 hover:text-blue-700"
+                              className="text-green-600 hover:text-green-700"
                             >
                               <i className="fas fa-eye"></i>
                             </Button>
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="text-green-600 hover:text-green-700"
+                              onClick={() => handleDelete(customer)}
+                              className="text-red-600 hover:text-red-700"
                             >
-                              <i className="fas fa-phone"></i>
+                              <i className="fas fa-trash"></i>
                             </Button>
                           </div>
                         </td>
@@ -520,6 +555,34 @@ export default function Customers() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deletingCustomer} onOpenChange={() => setDeletingCustomer(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure you want to delete this customer?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the customer "{deletingCustomer?.name}" 
+              and all associated data including purchase history and credit records.
+              {parseFloat(deletingCustomer?.totalCredit || "0") > 0 && (
+                <span className="block mt-2 text-red-600 font-medium">
+                  Warning: This customer has an outstanding credit of {formatCurrency(deletingCustomer?.totalCredit || "0")}.
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete Customer"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <ContactImportModal open={showImportDialog} onOpenChange={setShowImportDialog} />
     </>

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -49,6 +50,7 @@ export default function Inventory() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [deletingItem, setDeletingItem] = useState<InventoryItem | null>(null);
   const { toast } = useToast();
 
   const { data: items, isLoading } = useQuery<InventoryItem[]>({
@@ -82,9 +84,9 @@ export default function Inventory() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-metrics'] });
       toast({ title: "Success", description: "Item added successfully" });
-      setShowAddDialog(false);
-      form.reset();
+      handleCloseDialog();
     },
     onError: (error) => {
       toast({ 
@@ -101,9 +103,9 @@ export default function Inventory() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-metrics'] });
       toast({ title: "Success", description: "Item updated successfully" });
-      setEditingItem(null);
-      form.reset();
+      handleCloseDialog();
     },
     onError: (error) => {
       toast({ 
@@ -120,7 +122,9 @@ export default function Inventory() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-metrics'] });
       toast({ title: "Success", description: "Item deleted successfully" });
+      setDeletingItem(null);
     },
     onError: (error) => {
       toast({ 
@@ -162,10 +166,20 @@ export default function Inventory() {
     setShowAddDialog(true);
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm("Are you sure you want to delete this item?")) {
-      deleteMutation.mutate(id);
+  const handleDelete = (item: InventoryItem) => {
+    setDeletingItem(item);
+  };
+
+  const confirmDelete = () => {
+    if (deletingItem) {
+      deleteMutation.mutate(deletingItem.id);
     }
+  };
+
+  const handleCloseDialog = () => {
+    setShowAddDialog(false);
+    setEditingItem(null);
+    form.reset();
   };
 
   const calculateCurrentValue = (item: InventoryItem) => {
@@ -225,11 +239,8 @@ export default function Inventory() {
             <p className="text-gray-600 mt-1">Weight-based jewelry inventory tracking</p>
           </div>
           <Dialog open={showAddDialog} onOpenChange={(open) => {
-            setShowAddDialog(open);
-            if (!open) {
-              setEditingItem(null);
-              form.reset();
-            }
+            if (!open) handleCloseDialog();
+            else setShowAddDialog(true);
           }}>
             <DialogTrigger asChild>
               <Button className="bg-jewelry-gold text-white hover:bg-jewelry-bronze">
@@ -280,7 +291,7 @@ export default function Inventory() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Category</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <Select onValueChange={field.onChange} value={field.value}>
                             <FormControl>
                               <SelectTrigger>
                                 <SelectValue placeholder="Select category" />
@@ -308,7 +319,7 @@ export default function Inventory() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Material</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <Select onValueChange={field.onChange} value={field.value}>
                             <FormControl>
                               <SelectTrigger>
                                 <SelectValue placeholder="Select material" />
@@ -426,7 +437,7 @@ export default function Inventory() {
                     <Button 
                       type="button" 
                       variant="outline" 
-                      onClick={() => setShowAddDialog(false)}
+                      onClick={handleCloseDialog}
                     >
                       Cancel
                     </Button>
@@ -579,6 +590,20 @@ export default function Inventory() {
                   </div>
                 ))}
               </div>
+            ) : filteredItems.length === 0 ? (
+              <div className="text-center py-12">
+                <i className="fas fa-gem text-gray-400 text-4xl mb-4"></i>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No inventory items found</h3>
+                <p className="text-gray-600 mb-4">
+                  {searchTerm ? 'Try adjusting your search terms' : 'Start by adding your first inventory item'}
+                </p>
+                <Button 
+                  onClick={() => setShowAddDialog(true)}
+                  className="bg-jewelry-gold hover:bg-jewelry-bronze"
+                >
+                  <i className="fas fa-plus mr-2"></i>Add Item
+                </Button>
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -649,13 +674,14 @@ export default function Inventory() {
                               variant="ghost"
                               size="sm"
                               onClick={() => handleEdit(item)}
+                              className="text-blue-600 hover:text-blue-700"
                             >
                               <i className="fas fa-edit"></i>
                             </Button>
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => handleDelete(item.id)}
+                              onClick={() => handleDelete(item)}
                               className="text-red-600 hover:text-red-700"
                             >
                               <i className="fas fa-trash"></i>
@@ -671,6 +697,29 @@ export default function Inventory() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deletingItem} onOpenChange={() => setDeletingItem(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure you want to delete this item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the inventory item "{deletingItem?.name}" 
+              and remove it from your inventory records.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete Item"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

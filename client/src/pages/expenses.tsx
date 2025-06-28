@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,14 +15,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { getExpenses, createExpense } from "@/lib/firestore";
+import { getExpenses, createExpense, updateExpense, deleteExpense } from "@/lib/firestore";
 
 interface Expense {
   id: string;
   category: string;
   description: string;
   amount: string;
-  material?: string;
+  paymentMethod: string;
   receiptNumber?: string;
   vendorName?: string;
   expenseDate: string;
@@ -32,7 +33,7 @@ const expenseSchema = z.object({
   category: z.string().min(1, "Category is required"),
   description: z.string().min(1, "Description is required"),
   amount: z.string().min(1, "Amount is required"),
-  material: z.enum(["gold", "silver", "diamond", "platinum", "other"]).optional(),
+  paymentMethod: z.enum(["cash", "card", "upi", "bank_transfer", "cheque"]),
   receiptNumber: z.string().optional(),
   vendorName: z.string().optional(),
   expenseDate: z.string().min(1, "Expense date is required"),
@@ -41,22 +42,35 @@ const expenseSchema = z.object({
 type ExpenseForm = z.infer<typeof expenseSchema>;
 
 const expenseCategories = [
+  "Raw Materials",
+  "Gold Purchase",
+  "Silver Purchase",
   "Rent",
   "Utilities",
-  "Supplies",
-  "Raw Materials",
-  "Labor",
+  "Salaries",
   "Marketing",
   "Insurance",
   "Maintenance",
   "Transportation",
   "Professional Services",
+  "Office Supplies",
+  "Equipment",
   "Other"
+];
+
+const paymentMethods = [
+  { value: "cash", label: "Cash", icon: "fas fa-money-bill-wave" },
+  { value: "card", label: "Card", icon: "fas fa-credit-card" },
+  { value: "upi", label: "UPI", icon: "fas fa-mobile-alt" },
+  { value: "bank_transfer", label: "Bank Transfer", icon: "fas fa-university" },
+  { value: "cheque", label: "Cheque", icon: "fas fa-file-invoice" }
 ];
 
 export default function Expenses() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [deletingExpense, setDeletingExpense] = useState<Expense | null>(null);
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [dateRange, setDateRange] = useState<string>("all");
   const { toast } = useToast();
@@ -72,7 +86,7 @@ export default function Expenses() {
       category: "",
       description: "",
       amount: "",
-      material: undefined,
+      paymentMethod: "cash",
       receiptNumber: "",
       vendorName: "",
       expenseDate: new Date().toISOString().split('T')[0],
@@ -89,9 +103,51 @@ export default function Expenses() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-metrics'] });
       toast({ title: "Success", description: "Expense recorded successfully" });
-      setShowAddDialog(false);
-      form.reset();
+      handleCloseDialog();
+    },
+    onError: (error) => {
+      toast({ 
+        title: "Error", 
+        description: error.message,
+        variant: "destructive" 
+      });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<ExpenseForm> }) => {
+      const payload = {
+        ...data,
+        expenseDate: data.expenseDate ? new Date(data.expenseDate) : undefined,
+      };
+      await updateExpense(id, payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-metrics'] });
+      toast({ title: "Success", description: "Expense updated successfully" });
+      handleCloseDialog();
+    },
+    onError: (error) => {
+      toast({ 
+        title: "Error", 
+        description: error.message,
+        variant: "destructive" 
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await deleteExpense(id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-metrics'] });
+      toast({ title: "Success", description: "Expense deleted successfully" });
+      setDeletingExpense(null);
     },
     onError: (error) => {
       toast({ 
@@ -134,7 +190,41 @@ export default function Expenses() {
   }) || [];
 
   const handleSubmit = (data: ExpenseForm) => {
-    createMutation.mutate(data);
+    if (editingExpense) {
+      updateMutation.mutate({ id: editingExpense.id, data });
+    } else {
+      createMutation.mutate(data);
+    }
+  };
+
+  const handleEdit = (expense: Expense) => {
+    setEditingExpense(expense);
+    form.reset({
+      category: expense.category,
+      description: expense.description,
+      amount: expense.amount,
+      paymentMethod: expense.paymentMethod as any,
+      receiptNumber: expense.receiptNumber || "",
+      vendorName: expense.vendorName || "",
+      expenseDate: new Date(expense.expenseDate).toISOString().split('T')[0],
+    });
+    setShowAddDialog(true);
+  };
+
+  const handleDelete = (expense: Expense) => {
+    setDeletingExpense(expense);
+  };
+
+  const confirmDelete = () => {
+    if (deletingExpense) {
+      deleteMutation.mutate(deletingExpense.id);
+    }
+  };
+
+  const handleCloseDialog = () => {
+    setShowAddDialog(false);
+    setEditingExpense(null);
+    form.reset();
   };
 
   const formatCurrency = (amount: string) => {
@@ -156,33 +246,31 @@ export default function Expenses() {
 
   const getCategoryColor = (category: string) => {
     const colors = {
+      "Raw Materials": "bg-purple-100 text-purple-800",
+      "Gold Purchase": "bg-yellow-100 text-yellow-800",
+      "Silver Purchase": "bg-gray-100 text-gray-800",
       "Rent": "bg-blue-100 text-blue-800",
       "Utilities": "bg-green-100 text-green-800",
-      "Supplies": "bg-yellow-100 text-yellow-800",
-      "Raw Materials": "bg-purple-100 text-purple-800",
-      "Labor": "bg-orange-100 text-orange-800",
+      "Salaries": "bg-orange-100 text-orange-800",
       "Marketing": "bg-pink-100 text-pink-800",
       "Insurance": "bg-indigo-100 text-indigo-800",
       "Maintenance": "bg-red-100 text-red-800",
       "Transportation": "bg-cyan-100 text-cyan-800",
       "Professional Services": "bg-emerald-100 text-emerald-800",
+      "Office Supplies": "bg-amber-100 text-amber-800",
+      "Equipment": "bg-violet-100 text-violet-800",
     };
     return colors[category as keyof typeof colors] || "bg-gray-100 text-gray-800";
   };
 
-  const getMaterialColor = (material?: string) => {
-    switch (material) {
-      case 'gold':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'silver':
-        return 'bg-gray-100 text-gray-800';
-      case 'diamond':
-        return 'bg-blue-100 text-blue-800';
-      case 'platinum':
-        return 'bg-purple-100 text-purple-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
+  const getPaymentMethodIcon = (method: string) => {
+    const methodData = paymentMethods.find(pm => pm.value === method);
+    return methodData?.icon || "fas fa-question-circle";
+  };
+
+  const getPaymentMethodLabel = (method: string) => {
+    const methodData = paymentMethods.find(pm => pm.value === method);
+    return methodData?.label || method;
   };
 
   const totalExpenses = filteredExpenses.reduce((sum, expense) => sum + parseFloat(expense.amount), 0);
@@ -201,7 +289,10 @@ export default function Expenses() {
             <h1 className="text-2xl font-bold text-jewelry-navy">Expense Management</h1>
             <p className="text-gray-600 mt-1">Track business expenses and categorize spending</p>
           </div>
-          <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+          <Dialog open={showAddDialog} onOpenChange={(open) => {
+            if (!open) handleCloseDialog();
+            else setShowAddDialog(true);
+          }}>
             <DialogTrigger asChild>
               <Button className="bg-jewelry-gold text-white hover:bg-jewelry-bronze">
                 <i className="fas fa-plus mr-2"></i>Add Expense
@@ -209,7 +300,9 @@ export default function Expenses() {
             </DialogTrigger>
             <DialogContent className="max-w-2xl">
               <DialogHeader>
-                <DialogTitle>Record New Expense</DialogTitle>
+                <DialogTitle>
+                  {editingExpense ? 'Edit Expense' : 'Record New Expense'}
+                </DialogTitle>
               </DialogHeader>
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
@@ -243,7 +336,7 @@ export default function Expenses() {
                       name="amount"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Amount</FormLabel>
+                          <FormLabel>Amount (₹)</FormLabel>
                           <FormControl>
                             <Input 
                               type="number" 
@@ -277,23 +370,25 @@ export default function Expenses() {
                   <div className="grid grid-cols-2 gap-4">
                     <FormField
                       control={form.control}
-                      name="material"
+                      name="paymentMethod"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Related Material (Optional)</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value || ""}>
+                          <FormLabel>Payment Method</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
                             <FormControl>
                               <SelectTrigger>
-                                <SelectValue placeholder="Select if material-related" />
+                                <SelectValue placeholder="Select payment method" />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value="">None</SelectItem>
-                              <SelectItem value="gold">Gold</SelectItem>
-                              <SelectItem value="silver">Silver</SelectItem>
-                              <SelectItem value="diamond">Diamond</SelectItem>
-                              <SelectItem value="platinum">Platinum</SelectItem>
-                              <SelectItem value="other">Other</SelectItem>
+                              {paymentMethods.map((method) => (
+                                <SelectItem key={method.value} value={method.value}>
+                                  <div className="flex items-center">
+                                    <i className={`${method.icon} mr-2`}></i>
+                                    {method.label}
+                                  </div>
+                                </SelectItem>
+                              ))}
                             </SelectContent>
                           </Select>
                           <FormMessage />
@@ -357,16 +452,16 @@ export default function Expenses() {
                     <Button 
                       type="button" 
                       variant="outline" 
-                      onClick={() => setShowAddDialog(false)}
+                      onClick={handleCloseDialog}
                     >
                       Cancel
                     </Button>
                     <Button 
                       type="submit" 
                       className="bg-jewelry-gold hover:bg-jewelry-bronze"
-                      disabled={createMutation.isPending}
+                      disabled={createMutation.isPending || updateMutation.isPending}
                     >
-                      Record Expense
+                      {editingExpense ? 'Update Expense' : 'Record Expense'}
                     </Button>
                   </div>
                 </form>
@@ -535,11 +630,10 @@ export default function Expenses() {
                               <Badge className={getCategoryColor(expense.category)}>
                                 {expense.category}
                               </Badge>
-                              {expense.material && (
-                                <Badge className={getMaterialColor(expense.material)}>
-                                  {expense.material}
-                                </Badge>
-                              )}
+                              <div className="flex items-center text-sm text-gray-600">
+                                <i className={`${getPaymentMethodIcon(expense.paymentMethod)} mr-1`}></i>
+                                {getPaymentMethodLabel(expense.paymentMethod)}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -576,13 +670,23 @@ export default function Expenses() {
 
                     {/* Quick Actions */}
                     <div className="flex items-center justify-end space-x-2 mt-3 pt-3 border-t">
-                      <Button variant="ghost" size="sm">
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => handleEdit(expense)}
+                        className="text-blue-600 hover:text-blue-700"
+                      >
                         <i className="fas fa-edit mr-1"></i>Edit
                       </Button>
                       <Button variant="ghost" size="sm">
                         <i className="fas fa-eye mr-1"></i>View Details
                       </Button>
-                      <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => handleDelete(expense)}
+                        className="text-red-600 hover:text-red-700"
+                      >
                         <i className="fas fa-trash mr-1"></i>Delete
                       </Button>
                     </div>
@@ -593,6 +697,29 @@ export default function Expenses() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deletingExpense} onOpenChange={() => setDeletingExpense(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure you want to delete this expense?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the expense "{deletingExpense?.description}" 
+              and remove it from your expense records.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete Expense"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
