@@ -367,7 +367,7 @@ export const importCustomers = async (customers: Partial<CustomerData>[]): Promi
   return customerRefs.length;
 };
 
-// SALES OPERATIONS - Enhanced with flexible pricing
+// SALES OPERATIONS - Enhanced with flexible pricing and FIXED TRANSACTION BUG
 export const getSales = async (limitCount = 50) => {
   const q = query(
     collection(db, 'sales'),
@@ -408,10 +408,82 @@ export const getSales = async (limitCount = 50) => {
   return sales;
 };
 
+// FIXED: createSale function with proper transaction structure
 export const createSale = async (saleData: Partial<SaleData>, saleItems: Partial<SaleItemData>[]) => {
   return await runTransaction(db, async (transaction) => {
-    // Get current daily prices for calculations
-    const dailyPrices = await getDailyPrices();
+    // ===== PHASE 1: ALL READS FIRST =====
+    
+    // 1. Get current daily prices for calculations
+    const dailyPricesQuery = query(
+      collection(db, 'dailyPrices'),
+      orderBy('date', 'desc'),
+      limit(1)
+    );
+    const dailyPricesSnapshot = await getDocs(dailyPricesQuery);
+    
+    let dailyPrices = {
+      goldPricePerGram: "9200",
+      silverPricePerGram: "110",
+      platinumPricePerGram: "3500"
+    };
+    
+    if (!dailyPricesSnapshot.empty) {
+      const priceData = dailyPricesSnapshot.docs[0].data();
+      dailyPrices = {
+        goldPricePerGram: priceData.goldPricePerGram || "9200",
+        silverPricePerGram: priceData.silverPricePerGram || "110",
+        platinumPricePerGram: priceData.platinumPricePerGram || "3500"
+      };
+    }
+
+    // 2. Read all inventory items that will be updated (for inventory sales)
+    const inventoryUpdates: Array<{
+      ref: any;
+      currentData: any;
+      newQuantity: number;
+      newTotalWeight: string;
+    }> = [];
+
+    if (saleData.saleType === 'inventory') {
+      for (const item of saleItems) {
+        if (item.itemId && !item.isCustomItem) {
+          const inventoryRef = doc(db, 'inventoryItems', item.itemId);
+          const inventoryDoc = await transaction.get(inventoryRef);
+          
+          if (inventoryDoc.exists()) {
+            const currentData = inventoryDoc.data();
+            const currentQuantity = currentData?.quantity || 0;
+            const newQuantity = currentQuantity - (item.quantity || 0);
+            
+            // Recalculate total weight
+            const weightPerPiece = parseFloat(currentData?.weightPerPiece || "0");
+            const newTotalWeight = (newQuantity * weightPerPiece).toString();
+            
+            inventoryUpdates.push({
+              ref: inventoryRef,
+              currentData,
+              newQuantity,
+              newTotalWeight
+            });
+          }
+        }
+      }
+    }
+
+    // 3. Read customer data if needed for credit updates
+    let customerData = null;
+    if (saleData.customerId) {
+      const customerRef = doc(db, 'customers', saleData.customerId);
+      const customerDoc = await transaction.get(customerRef);
+      if (customerDoc.exists()) {
+        customerData = {
+          ref: customerRef,
+          data: customerDoc.data()
+        };
+      }
+    }
+
+    // ===== PHASE 2: CALCULATIONS (NO DATABASE OPERATIONS) =====
     
     // Generate receipt number
     const receiptNumber = `RCP-${Date.now()}`;
@@ -427,18 +499,18 @@ export const createSale = async (saleData: Partial<SaleData>, saleItems: Partial
         // Custom item calculation
         const weight = parseFloat(item.weightGrams || "0");
         const pricePerGram = item.metalType === 'gold' ? 
-          parseFloat(dailyPrices?.goldPricePerGram || "9200") :
-          parseFloat(dailyPrices?.silverPricePerGram || "110");
+          parseFloat(dailyPrices.goldPricePerGram) :
+          parseFloat(dailyPrices.silverPricePerGram);
         
         itemTotal = weight * pricePerGram;
       } else {
         // Inventory item calculation
         const weight = parseFloat(item.weightGrams || "0");
         const pricePerGram = item.metalType === 'gold' ? 
-          parseFloat(dailyPrices?.goldPricePerGram || "9200") :
-          parseFloat(dailyPrices?.silverPricePerGram || "110");
+          parseFloat(dailyPrices.goldPricePerGram) :
+          parseFloat(dailyPrices.silverPricePerGram);
         
-        itemTotal = weight * pricePerGram * item.quantity!;
+        itemTotal = weight * pricePerGram * (item.quantity || 1);
       }
       
       // Apply making charges and wastage
@@ -473,8 +545,10 @@ export const createSale = async (saleData: Partial<SaleData>, saleItems: Partial
     if (creditAmount > 0) {
       paymentStatus = totalReceived > 0 ? 'partial' : 'pending';
     }
+
+    // ===== PHASE 3: ALL WRITES =====
     
-    // Create sale
+    // 1. Create sale
     const saleRef = doc(collection(db, 'sales'));
     transaction.set(saleRef, {
       ...saleData,
@@ -486,7 +560,7 @@ export const createSale = async (saleData: Partial<SaleData>, saleItems: Partial
       createdAt: new Date(),
     });
 
-    // Create sale items
+    // 2. Create sale items
     processedItems.forEach(item => {
       const itemRef = doc(collection(db, 'saleItems'));
       transaction.set(itemRef, {
@@ -495,31 +569,16 @@ export const createSale = async (saleData: Partial<SaleData>, saleItems: Partial
       });
     });
 
-    // Update inventory for inventory sales
-    if (saleData.saleType === 'inventory') {
-      for (const item of saleItems) {
-        if (item.itemId && !item.isCustomItem) {
-          const inventoryRef = doc(db, 'inventoryItems', item.itemId);
-          const inventoryDoc = await transaction.get(inventoryRef);
-          if (inventoryDoc.exists()) {
-            const currentQuantity = inventoryDoc.data()?.quantity || 0;
-            const newQuantity = currentQuantity - (item.quantity || 0);
-            
-            // Recalculate total weight
-            const weightPerPiece = parseFloat(inventoryDoc.data()?.weightPerPiece || "0");
-            const newTotalWeight = (newQuantity * weightPerPiece).toString();
-            
-            transaction.update(inventoryRef, {
-              quantity: newQuantity,
-              totalWeight: newTotalWeight,
-              updatedAt: new Date(),
-            });
-          }
-        }
-      }
-    }
+    // 3. Update inventory for inventory sales
+    inventoryUpdates.forEach(update => {
+      transaction.update(update.ref, {
+        quantity: update.newQuantity,
+        totalWeight: update.newTotalWeight,
+        updatedAt: new Date(),
+      });
+    });
 
-    // Create credit transaction if needed
+    // 4. Create credit transaction if needed
     if (creditAmount > 0 && saleData.customerId) {
       const creditRef = doc(collection(db, 'creditTransactions'));
       transaction.set(creditRef, {
@@ -530,6 +589,18 @@ export const createSale = async (saleData: Partial<SaleData>, saleItems: Partial
         balanceAfter: creditAmount.toString(), // Will be recalculated in updateCustomerTotals
         notes: `Credit from sale ${receiptNumber}`,
         createdAt: new Date(),
+      });
+    }
+
+    // 5. Update customer totals if customer exists
+    if (customerData) {
+      const currentTotalPurchases = parseFloat(customerData.data.totalPurchases || "0");
+      const currentTotalCredit = parseFloat(customerData.data.totalCredit || "0");
+      
+      transaction.update(customerData.ref, {
+        totalPurchases: (currentTotalPurchases + calculatedTotal).toString(),
+        totalCredit: (currentTotalCredit + creditAmount).toString(),
+        updatedAt: new Date(),
       });
     }
 
